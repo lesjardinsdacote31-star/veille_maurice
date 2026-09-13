@@ -5,11 +5,23 @@ public directement (vérifié en conditions réelles — voir README). Les 3
 groupes marqués "prive" en base restent inactifs tant que cette approche
 n'est pas mise en place manuellement (compte dédié + cookies).
 
+Regroupement obligatoire : Apify facture ces acteurs un forfait fixe par
+LANCEMENT (~0,076$, mesuré en conditions réelles), quasiment indépendant
+du nombre de résultats — un lancement par source épuiserait le budget
+gratuit en un seul passage. `resultsLimit` s'applique par URL (vérifié en
+direct : 2 URLs, resultsLimit=6 -> 6 posts par URL, 12 au total), donc
+regrouper N sources dans un seul lancement coûte le même forfait tout en
+retournant les mêmes résultats par source qu'un lancement individuel.
+Voir README, section budget Facebook, pour l'incident qui a mené à ce
+choix.
+
 Le texte d'un post (description_courte = texte_complet) ne souffre pas de
 la pollution "page entière" rencontrée sur les sites web : un post Facebook
 n'a pas de menu de navigation ni de "biens similaires" mélangés dedans.
 """
 from __future__ import annotations
+
+from collections import defaultdict
 
 from . import normalize
 from .apify_client import ClientApify
@@ -25,18 +37,41 @@ def _acteur_pour(type_source: str) -> str:
     return ACTEUR_PAGES if type_source == "page_facebook" else ACTEUR_GROUPES
 
 
-def collecter_facebook(source: dict, *, client_apify: ClientApify) -> list[dict]:
-    """Retourne les posts bruts (dicts Apify) pour une source page/groupe Facebook."""
+def collecter_facebook_groupe(sources: list[dict], *, client_apify: ClientApify) -> dict[str, list[dict]]:
+    """Un seul lancement Apify pour plusieurs sources du même type (pages OU
+    groupes, pas les deux : elles utilisent des acteurs différents).
+    Retourne les posts bruts regroupés par `identifiant` de source.
+    """
+    if not sources:
+        return {}
+
+    type_source = sources[0]["type"]
     entree: dict = {
-        "startUrls": [{"url": source["identifiant"]}],
+        "startUrls": [{"url": s["identifiant"]} for s in sources],
         "resultsLimit": RESULTATS_MAX_PAR_PASSAGE,
     }
-    if source.get("derniere_collecte_le"):
-        # Ne redemande que les posts publiés depuis le dernier passage réussi
-        # sur CETTE source — maîtrise le budget Apify (voir README).
-        entree["onlyPostsNewerThan"] = source["derniere_collecte_le"][:10]
 
-    return client_apify.executer_acteur(_acteur_pour(source["type"]), entree)
+    # Le filtre de date s'applique à tout le lancement : on prend la plus
+    # ancienne date parmi le lot (jamais rater un post neuf sur une source
+    # moins souvent vérifiée — un doublon éventuel est absorbé sans dégât
+    # par la dédup sur source_id+url).
+    dates_connues = [s["derniere_collecte_le"] for s in sources if s.get("derniere_collecte_le")]
+    if len(dates_connues) == len(sources):
+        entree["onlyPostsNewerThan"] = min(dates_connues)[:10]
+
+    posts = client_apify.executer_acteur(_acteur_pour(type_source), entree)
+
+    par_source: dict[str, list[dict]] = defaultdict(list)
+    identifiants_connus = {s["identifiant"] for s in sources}
+    for post in posts:
+        cle = post.get("facebookUrl") or ""
+        if cle in identifiants_connus:
+            par_source[cle].append(post)
+        # Un post dont l'URL de conteneur ne correspond à aucune source
+        # demandée est ignoré (ne devrait pas arriver, mais ne doit pas
+        # planter le lot si Apify renvoie un champ inattendu).
+
+    return par_source
 
 
 def _texte_post(post: dict) -> str:

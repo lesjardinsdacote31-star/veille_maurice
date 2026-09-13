@@ -16,11 +16,11 @@ on:
 jobs:
   collecte:
     runs-on: ubuntu-latest
-    # Mesuré en conditions réelles (sept. 2026) : ~15s par appel Apify en
-    # moyenne, jusqu'à ~60 sources Facebook actives selon les fréquences
-    # qui coïncident (+ les 11 sites, + les appels Gemini) -> jusqu'à
-    # ~15-18 min rien que pour Facebook les jours chargés. Marge large.
-    timeout-minutes: 35
+    # Sites (httpx, ~11) + 2 lancements Apify groupés (pages, groupes) +
+    # notation Gemini des survivants. Le regroupement Apify a fait chuter
+    # la durée par rapport aux ~15-18 min mesurées avec un lancement par
+    # source (voir README, section budget Facebook) — marge conservée.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -40,6 +40,12 @@ jobs:
           APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_CONTACT_EMAIL: ${{ secrets.VAPID_CONTACT_EMAIL }}
+          # Facebook (2 lancements Apify groupés, coût fixe par lancement,
+          # voir README) : une seule fois par jour, sur le premier cron —
+          # les deux autres passages du jour ne touchent que les sites,
+          # gratuits. Un déclenchement manuel (workflow_dispatch) collecte
+          # Facebook par défaut, github.event.schedule étant alors vide.
+          COLLECTER_FACEBOOK: ${{ github.event.schedule == '0 4 * * *' || github.event.schedule == '' }}
         run: |
           if [ "${{ inputs.mode_test }}" = "true" ]; then
             python -m collecte.main --test

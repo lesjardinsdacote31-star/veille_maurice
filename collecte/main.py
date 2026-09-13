@@ -29,12 +29,13 @@ from .stockage import Stockage, creer_client
 
 TIMEOUT_HTTP_SECONDES = 20.0
 
-# Plafond mensuel de posts Facebook consommés via Apify, tous types
-# confondus (pages + groupes). $5 gratuits / mois ÷ ~$2-3 pour 1000 posts
-# ≈ 1900 posts ; on garde une marge de sécurité large plutôt que de viser
-# la limite exacte — à ajuster une fois le coût réel observé (tableau de
-# bord Apify, ou futur écran M5).
-PLAFOND_APIFY_POSTS_MENSUEL = 1200
+# Plafond mensuel de LANCEMENTS Apify (pas de posts — mesuré en conditions
+# réelles, ~0,076$/lancement quasi indépendamment du nombre de résultats,
+# voir README). Sites et groupes sont chacun regroupés en un seul
+# lancement par passage Facebook (voir _collecter_type_facebook), donc
+# 2 lancements/jour x 30 jours = 60, sous les ~65 que couvrent les 5$
+# gratuits mensuels — marge de sécurité volontaire.
+PLAFOND_APIFY_LANCEMENTS_MENSUEL = 55
 
 
 def _construire_texte_annonce(donnees: DonneesBrutesAnnonce) -> str:
@@ -154,8 +155,8 @@ def traiter_site(
     )
 
 
-def traiter_facebook(
-    source: dict,
+def traiter_facebook_groupe(
+    sources_dues: list[dict],
     *,
     client_apify: ClientApify,
     client_gemini: ClientGemini | None,
@@ -167,38 +168,60 @@ def traiter_facebook(
     mode_test: bool,
     periode: str,
 ) -> int:
-    """Traite une source Facebook (page ou groupe). Retourne le nombre
-    d'annonces retenues, ou 0 sans erreur si le budget mensuel est atteint
-    (ne doit jamais interrompre la collecte des sites)."""
-    autorise = mode_test or stockage.consommer_quota(
-        "apify", periode, PLAFOND_APIFY_POSTS_MENSUEL, sources_facebook.RESULTATS_MAX_PAR_PASSAGE
-    )
+    """Traite toutes les sources Facebook dues (même type : pages OU
+    groupes) en UN SEUL lancement Apify groupé — voir sources_facebook.py
+    pour pourquoi le regroupement est indispensable au budget. Met à jour
+    la santé de chaque source individuellement malgré le lancement commun.
+    Retourne le nombre total d'annonces retenues sur ce lot.
+    """
+    if not sources_dues:
+        return 0
+
+    autorise = stockage.consommer_quota("apify", periode, PLAFOND_APIFY_LANCEMENTS_MENSUEL, 1)
     if not autorise:
         journal.avertissement(
-            "plafond Apify mensuel atteint, source ignorée ce passage", source_id=source["id"]
+            f"plafond Apify mensuel atteint, {len(sources_dues)} source(s) ignorée(s) ce passage"
         )
         return 0
 
-    posts = sources_facebook.collecter_facebook(source, client_apify=client_apify)
-    journal.info(f"{len(posts)} post(s) récupéré(s)", source_id=source["id"])
+    try:
+        posts_par_source = sources_facebook.collecter_facebook_groupe(
+            sources_dues, client_apify=client_apify
+        )
+    except Exception as exc:  # noqa: BLE001 — un lancement groupé qui échoue ne doit
+        # jamais faire tomber le reste de la collecte (sites, autre type Facebook).
+        journal.erreur(f"échec du lancement Apify groupé : {exc}")
+        for source in sources_dues:
+            stockage.maj_sante_source(source["id"], ok=False, nb_resultats=0, mode_test=mode_test)
+        return 0
 
-    annonces_brutes = [
-        donnees
-        for post in posts
-        if (donnees := sources_facebook.convertir_post(post)) is not None
-    ]
+    total_retenues_lot = 0
+    for source in sources_dues:
+        posts = posts_par_source.get(source["identifiant"], [])
+        annonces_brutes = [
+            donnees
+            for post in posts
+            if (donnees := sources_facebook.convertir_post(post)) is not None
+        ]
+        nb_retenues = traiter_annonces_brutes(
+            annonces_brutes,
+            source=source,
+            client_gemini=client_gemini,
+            stockage=stockage,
+            secteurs=secteurs,
+            criteres=criteres,
+            votes_passes=votes_passes,
+            journal=journal,
+            mode_test=mode_test,
+        )
+        stockage.maj_sante_source(source["id"], ok=True, nb_resultats=nb_retenues, mode_test=mode_test)
+        journal.info(
+            f"{len(posts)} post(s) récupéré(s), {nb_retenues} annonce(s) retenue(s)",
+            source_id=source["id"],
+        )
+        total_retenues_lot += nb_retenues
 
-    return traiter_annonces_brutes(
-        annonces_brutes,
-        source=source,
-        client_gemini=client_gemini,
-        stockage=stockage,
-        secteurs=secteurs,
-        criteres=criteres,
-        votes_passes=votes_passes,
-        journal=journal,
-        mode_test=mode_test,
-    )
+    return total_retenues_lot
 
 
 def executer(mode_test: bool) -> None:
@@ -249,44 +272,46 @@ def executer(mode_test: bool) -> None:
                 journal.erreur(f"échec de la collecte : {exc}", source_id=source["id"])
                 stockage.maj_sante_source(source["id"], ok=False, nb_resultats=0, mode_test=mode_test)
 
-    # -- Facebook (pages puis groupes) -----------------------------------------
+    # -- Facebook (pages puis groupes, chacun en UN lancement Apify groupé) ---
+    # Limité à 1 passage/jour (variable COLLECTER_FACEBOOK, positionnée par
+    # le workflow uniquement sur le premier cron du jour) : chaque lancement
+    # coûte un forfait fixe quasi indépendant du volume — voir README,
+    # section budget Facebook, pour l'incident qui a motivé cette décision.
+    collecter_facebook_aujourdhui = os.environ.get("COLLECTER_FACEBOOK", "true") == "true"
     cle_apify = os.environ.get("APIFY_API_TOKEN")
     client_apify = ClientApify(token=cle_apify) if cle_apify else None
+
     if client_apify is None:
         journal.avertissement("APIFY_API_TOKEN absente : collecte Facebook désactivée")
+    elif not collecter_facebook_aujourdhui:
+        journal.info("collecte Facebook non due aujourd'hui (déjà faite ce jour)")
     else:
         for type_source in ("page_facebook", "groupe_facebook"):
             sources_fb = stockage.charger_sources_actives(type_source=type_source)
-            for source in sources_fb:
-                if not frequence.est_due(
-                    source.get("frequence", "chaque_run"),
-                    source.get("derniere_collecte_le"),
-                    maintenant=maintenant,
-                ):
-                    continue
-                try:
-                    nb_retenues = traiter_facebook(
-                        source,
-                        client_apify=client_apify,
-                        client_gemini=client_gemini,
-                        stockage=stockage,
-                        secteurs=secteurs,
-                        criteres=criteres,
-                        votes_passes=votes_passes,
-                        journal=journal,
-                        mode_test=mode_test,
-                        periode=periode,
-                    )
-                    stockage.maj_sante_source(
-                        source["id"], ok=True, nb_resultats=nb_retenues, mode_test=mode_test
-                    )
-                    journal.info(f"{nb_retenues} annonce(s) retenue(s)", source_id=source["id"])
-                    total_retenues += nb_retenues
-                except (Exception, ErreurApify) as exc:  # noqa: BLE001 — isolation volontaire
-                    journal.erreur(f"échec de la collecte : {exc}", source_id=source["id"])
-                    stockage.maj_sante_source(
-                        source["id"], ok=False, nb_resultats=0, mode_test=mode_test
-                    )
+            sources_dues = [
+                s
+                for s in sources_fb
+                if frequence.est_due(
+                    s.get("frequence", "chaque_run"), s.get("derniere_collecte_le"), maintenant=maintenant
+                )
+            ]
+            if not sources_dues:
+                continue
+            try:
+                total_retenues += traiter_facebook_groupe(
+                    sources_dues,
+                    client_apify=client_apify,
+                    client_gemini=client_gemini,
+                    stockage=stockage,
+                    secteurs=secteurs,
+                    criteres=criteres,
+                    votes_passes=votes_passes,
+                    journal=journal,
+                    mode_test=mode_test,
+                    periode=periode,
+                )
+            except ErreurApify as exc:  # noqa: BLE001 — isolation volontaire du type Facebook
+                journal.erreur(f"échec de la collecte Facebook ({type_source}) : {exc}")
 
     journal.info(f"collecte terminée : {total_retenues} annonce(s) retenue(s) au total")
 

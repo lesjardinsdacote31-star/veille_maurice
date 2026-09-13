@@ -1,4 +1,4 @@
-from collecte.sources_facebook import convertir_post
+from collecte.sources_facebook import collecter_facebook_groupe, convertir_post
 
 # Structure calquée sur un vrai post récupéré via l'acteur Apify
 # apify/facebook-groups-scraper (voir historique du projet).
@@ -68,3 +68,76 @@ class TestConvertirPost:
         # de page (menus, biens similaires) à filtrer.
         donnees = convertir_post(POST_TERRAIN_AVEC_OCR)
         assert donnees.description_courte == donnees.texte_complet
+
+
+class ClientApifyFactice:
+    """Double de test : capture l'entrée reçue, renvoie une liste de posts
+    fournie d'avance, sans appel réseau réel."""
+
+    def __init__(self, posts_a_renvoyer: list[dict]):
+        self.posts_a_renvoyer = posts_a_renvoyer
+        self.dernier_acteur_id: str | None = None
+        self.derniere_entree: dict | None = None
+
+    def executer_acteur(self, acteur_id: str, entree: dict, *, timeout: float = 180.0) -> list[dict]:
+        self.dernier_acteur_id = acteur_id
+        self.derniere_entree = entree
+        return self.posts_a_renvoyer
+
+
+class TestCollecterFacebookGroupe:
+    def test_regroupe_un_seul_lancement_pour_plusieurs_sources(self):
+        # Un post par groupe, comme observé en conditions réelles avec
+        # resultsLimit appliqué par URL et non globalement.
+        posts = [
+            {**POST_TERRAIN_AVEC_OCR, "facebookUrl": "https://www.facebook.com/groups/AAA/"},
+            {**POST_TERRAIN_AVEC_OCR, "facebookUrl": "https://www.facebook.com/groups/BBB/"},
+        ]
+        client = ClientApifyFactice(posts)
+        sources = [
+            {"type": "groupe_facebook", "identifiant": "https://www.facebook.com/groups/AAA/"},
+            {"type": "groupe_facebook", "identifiant": "https://www.facebook.com/groups/BBB/"},
+        ]
+
+        resultat = collecter_facebook_groupe(sources, client_apify=client)
+
+        assert client.dernier_acteur_id == "apify/facebook-groups-scraper"
+        assert len(client.derniere_entree["startUrls"]) == 2
+        assert len(resultat["https://www.facebook.com/groups/AAA/"]) == 1
+        assert len(resultat["https://www.facebook.com/groups/BBB/"]) == 1
+
+    def test_utilise_la_plus_ancienne_date_du_lot(self):
+        client = ClientApifyFactice([])
+        sources = [
+            {
+                "type": "page_facebook",
+                "identifiant": "https://www.facebook.com/a",
+                "derniere_collecte_le": "2026-09-10T08:00:00+00:00",
+            },
+            {
+                "type": "page_facebook",
+                "identifiant": "https://www.facebook.com/b",
+                "derniere_collecte_le": "2026-09-05T08:00:00+00:00",
+            },
+        ]
+
+        collecter_facebook_groupe(sources, client_apify=client)
+
+        assert client.derniere_entree["onlyPostsNewerThan"] == "2026-09-05"
+
+    def test_pas_de_filtre_date_si_une_source_jamais_collectee(self):
+        client = ClientApifyFactice([])
+        sources = [
+            {"type": "page_facebook", "identifiant": "https://www.facebook.com/a",
+             "derniere_collecte_le": "2026-09-10T08:00:00+00:00"},
+            {"type": "page_facebook", "identifiant": "https://www.facebook.com/b"},
+        ]
+
+        collecter_facebook_groupe(sources, client_apify=client)
+
+        assert "onlyPostsNewerThan" not in client.derniere_entree
+
+    def test_liste_vide_ne_lance_rien(self):
+        client = ClientApifyFactice([])
+        assert collecter_facebook_groupe([], client_apify=client) == {}
+        assert client.dernier_acteur_id is None
