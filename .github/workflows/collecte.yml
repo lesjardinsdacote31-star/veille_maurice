@@ -1,0 +1,40 @@
+name: Collecte immobilière
+
+on:
+  schedule:
+    # 08:00, 13:00, 20:00 heure de Maurice (UTC+4) = 04:00, 09:00, 16:00 UTC
+    - cron: "0 4 * * *"
+    - cron: "0 9 * * *"
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+    inputs:
+      mode_test:
+        description: "Mode test (ne rien écrire ni envoyer)"
+        type: boolean
+        default: false
+
+jobs:
+  collecte-sites:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - run: pip install -r requirements.txt
+
+      - name: Lancer la collecte
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ "${{ inputs.mode_test }}" = "true" ]; then
+            python -m collecte.main --test
+          else
+            python -m collecte.main
+          fi

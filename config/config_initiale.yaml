@@ -1,0 +1,335 @@
+# Configuration initiale — source de vérité migrée vers Supabase par
+# scripts/migrer_config_vers_supabase.py au premier lancement (et à chaque
+# modification manuelle de ce fichier, via --forcer).
+#
+# Après la migration initiale, Supabase (tables `parametres`, `secteurs`,
+# `sources`) devient la source de vérité vivante : les ajouts/désactivations
+# de sources se font depuis l'écran d'administration de l'app, pas ici.
+
+criteres:
+  budget_min_roupies: 5000000
+  budget_max_roupies: 10000000
+  types_acceptes: [maison, terrain]
+  mots_exclus:
+    - pds
+    - irs
+    - res
+    - "sur plan"
+    - off-plan
+    - vefa
+    - "à louer"
+    - "a louer"
+    - "for rent"
+    - "to let"
+    - location
+  distance_plage_max_km: 3
+
+secteurs:
+  - id: trou_aux_biches
+    nom: "Trou aux Biches"
+    alias: ["trou aux biches", "trou-aux-biches", "tab"]
+  - id: mont_choisy
+    nom: "Mont Choisy"
+    alias: ["mont choisy", "mont-choisy"]
+  - id: pointe_aux_canonniers
+    nom: "Pointe aux Canonniers"
+    alias: ["pointe aux canonniers", "pointe-aux-canonniers", "canonniers"]
+  - id: grand_baie
+    nom: "Grand Baie"
+    alias: ["grand baie", "grand-baie", "grand bay"]
+  - id: pereybere
+    nom: "Péreybère"
+    alias: ["pereybere", "péreybère", "perey-bere", "perey bere"]
+  - id: bain_boeuf
+    nom: "Bain Boeuf"
+    alias: ["bain boeuf", "bain bœuf", "bain-boeuf"]
+  - id: cap_malheureux
+    nom: "Cap Malheureux"
+    alias: ["cap malheureux", "cap-malheureux", "st francois", "st françois", "saint francois", "saint françois"]
+
+# ---------------------------------------------------------------------------
+# Sites (extraction JSON-LD -> OpenGraph/heuristiques -> Gemini en dernier repli)
+# ---------------------------------------------------------------------------
+sources_sites:
+  # identifiant = page d'index à parcourir pour trouver les annonces individuelles.
+  # Validé en direct pour lexpressproperty (rendu HTML côté serveur, OK pour
+  # httpx). Les autres pointent vers l'accueil par défaut et devront être
+  # ajustés vers leur page de recherche/liste réelle avant le premier run —
+  # voir README, section "Valider une nouvelle source".
+  - identifiant: "https://www.lexpressproperty.com/en/buy-mauritius/"
+    nom: "Lexpressproperty"
+  - identifiant: "https://www.propertycloud.mu/"
+    nom: "PropertyCloud"
+    # Vérifié en direct : protégé par un défi anti-bot Cloudflare, bloque
+    # même un navigateur automatisé standard. httpx échouera très
+    # probablement. À traiter comme source à risque : laissée active pour
+    # que l'auto-réparation la documente, mais ne pas s'étonner d'échecs
+    # récurrents tant qu'une solution (proxy resi, API alternative...)
+    # n'est pas trouvée.
+  - identifiant: "https://www.propertymap.mu/"
+    nom: "PropertyMap"
+  - identifiant: "https://www.propertyconsult.mu/"
+    nom: "Property Consult"
+  - identifiant: "https://www.real-estate.mu/"
+    nom: "Prospera (real-estate.mu)"
+  - identifiant: "https://mu.green-acres.com/en"
+    nom: "Green-Acres Maurice"
+  - identifiant: "https://www.ofim.mu/en/index.html"
+    nom: "OFIM"
+  - identifiant: "https://myimmomauritius.com/fr"
+    nom: "My Immo Mauritius"
+  - identifiant: "https://www.ayoimmobilier.mu/"
+    nom: "AYO Immobilier"
+  - identifiant: "https://real-estate-mauritius.mu/en/"
+    nom: "Westimmo"
+  - identifiant: "https://www.decordier-immobilier.mu/en/"
+    nom: "Decordier Immobilier"
+
+# ---------------------------------------------------------------------------
+# Pages Facebook (Apify, sans connexion, 3x/jour — priorité 1 = Nord ciblé)
+# ---------------------------------------------------------------------------
+sources_pages_facebook:
+  # Pages du Nord, prioritaires
+  - identifiant: "https://www.facebook.com/ofim.immobilier.grand.baie.maurice"
+    nom: "OFIM immobilier Grand Baie"
+    priorite: 1
+  - identifiant: "https://www.facebook.com/nestennimmobiliergrandbaie"
+    nom: "Nestenn Immobilier Grand Baie"
+    priorite: 1
+  - identifiant: "https://www.facebook.com/patrickmyimmo"
+    nom: "MY IMMO Mauritius"
+    priorite: 1
+  - identifiant: "https://www.facebook.com/profile.php?id=100064974132329"
+    nom: "Claudia Morris Real Estate Mauritius"
+    priorite: 1
+  - identifiant: "https://www.facebook.com/p/Real-Estate-Agency-61555894556164/"
+    nom: "Real Estate Agency (Péreybère, sans site web)"
+    priorite: 1
+  - identifiant: "https://www.facebook.com/ParkLanePropertiesMauritius"
+    nom: "Park Lane Properties"
+    priorite: 1
+  # Agences généralistes
+  - identifiant: "https://www.facebook.com/ofim.ile.maurice.agence.immobiliere"
+    nom: "Agence immobilière OFIM Ile Maurice"
+    priorite: 2
+  - identifiant: "https://www.facebook.com/AYOimmobilier"
+    nom: "AYO immobilier - Ile Maurice"
+    priorite: 2
+  - identifiant: "https://www.facebook.com/immobiliers.mu"
+    nom: "Immobiliers.mu"
+    priorite: 2
+  - identifiant: "https://www.facebook.com/immo23"
+    nom: "Immo 23"
+    priorite: 2
+  - identifiant: "https://www.facebook.com/squaremeters.mu"
+    nom: "Square Meters Ltd"
+    priorite: 2
+  - identifiant: "https://www.facebook.com/profile.php?id=100067314866630"
+    nom: "Sumad Immobilier Île Maurice"
+    priorite: 2
+  - identifiant: "https://www.facebook.com/profile.php?id=100067166710622"
+    nom: "Ajr-Agence Immobilière Ile Maurice"
+    priorite: 2
+  - identifiant: "https://www.facebook.com/profile.php?id=100054664470005"
+    nom: "Actimmo Immobilier - Ile Maurice"
+    priorite: 2
+  - identifiant: "https://www.facebook.com/profile.php?id=100069642319558"
+    nom: "Agence immobilière Maurice Garcin"
+    priorite: 2
+  - identifiant: "https://www.facebook.com/profile.php?id=100093126997007"
+    nom: "Angelique Grandjean - promptimmo"
+    priorite: 2
+  - identifiant: "https://www.facebook.com/innovaterem"
+    nom: "Innovate Real Estate Mauritius"
+    priorite: 2
+  - identifiant: "https://www.facebook.com/realestatemaurice"
+    nom: "Real Estate Mauritius"
+    priorite: 2
+  - identifiant: "https://www.facebook.com/mauritiuspropertyrealestate"
+    nom: "Mauritius Property & Real Estate"
+    priorite: 2
+  - identifiant: "https://www.facebook.com/luxurypropertiesinmauritius"
+    nom: "Properties In Mauritius"
+    priorite: 2
+  - identifiant: "https://www.facebook.com/lexpressproperty"
+    nom: "LexpressProperty.com"
+    priorite: 2
+  # Pages "terrain" à surveiller
+  - identifiant: "https://www.facebook.com/profile.php?id=61579507094331"
+    nom: "Terrain à vendre ile Maurice"
+    priorite: 2
+  - identifiant: "https://www.facebook.com/profile.php?id=61581857191217"
+    nom: "Terrains à Vendre à Ile Maurice"
+    priorite: 2
+
+# ---------------------------------------------------------------------------
+# Groupes Facebook (Apify, sans connexion sauf mention prive: true)
+# frequence : chaque_run (P1/P3), quotidien (P2), hebdomadaire (P4)
+# ---------------------------------------------------------------------------
+sources_groupes_facebook:
+  # Priorité 1 — vente immobilière
+  - identifiant: "https://www.facebook.com/groups/MAISON.et.TERRAIN.Maurice/"
+    nom: "MAISON et TERRAIN à Vendre Maurice"
+    priorite: 1
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/901873673838148/"
+    nom: "Maison /Terrain a vendre a petit prix (maurice)"
+    priorite: 1
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/391247267726566/"
+    nom: "Terrain et Maison a Vendre et Acheter a Maurice"
+    priorite: 1
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/1318352385465574/"
+    nom: "TERRAIN ET MAISONS A VENDRE ILE MAURICE"
+    priorite: 1
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/1285955308794864/"
+    nom: "Terrain a vendre/Maison a vendre /Maison a louer.. (ile maurice)"
+    priorite: 1
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/870818256713938/"
+    nom: "Location & Vente île Maurice"
+    priorite: 1
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/338887824429896/"
+    nom: "Land For Sale In Mauritius"
+    priorite: 1
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/immobilierilemaurice/"
+    nom: "Immobilier Ile Maurice / Real Estate in Mauritius"
+    priorite: 1
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/1419944648264385/"
+    nom: "Real Estate Mauritius"
+    priorite: 1
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/933167693532492/"
+    nom: "Immobilier Ile maurice"
+    priorite: 1
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/855458172118250/"
+    nom: "TERRAIN -MAISONS A VENDRE A LOUER A l'ile Maurice"
+    priorite: 1
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/1049485955875054/"
+    nom: "Villa Île Maurice Nord Grand baie"
+    priorite: 1
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/859288066179528/"
+    nom: "Land for sale in Mauritius"
+    priorite: 1
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/3386401871416033/"
+    nom: "Terrain a vendre Île Maurice / Land for sale Mauritius"
+    priorite: 1
+    frequence: chaque_run
+
+  # Priorité 2 — expatriés
+  - identifiant: "https://www.facebook.com/groups/203678987123750/"
+    nom: "Expats and Locals in Mauritius"
+    priorite: 2
+    frequence: quotidien
+  - identifiant: "https://www.facebook.com/groups/590833608467024/"
+    nom: "Ile Maurice Expat & Local Mauritius"
+    priorite: 2
+    frequence: quotidien
+  - identifiant: "https://www.facebook.com/groups/352322073708130/"
+    nom: "Expats nord île Maurice"
+    priorite: 2
+    frequence: quotidien
+  - identifiant: "https://www.facebook.com/groups/1581054465692140/"
+    nom: "S'expatrier a l'ile Maurice (fisca, visas, immo, santé…)"
+    priorite: 2
+    frequence: quotidien
+  - identifiant: "https://www.facebook.com/groups/395567038335541/"
+    nom: "Français, belges et suisses s'expatrient à l'île Maurice"
+    priorite: 2
+    frequence: quotidien
+  - identifiant: "https://www.facebook.com/groups/1205979650674996/"
+    nom: "Français à l'île Maurice"
+    priorite: 2
+    frequence: quotidien
+  - identifiant: "https://www.facebook.com/groups/546483022707608/"
+    nom: "Expats Francophones île Maurice"
+    priorite: 2
+    frequence: quotidien
+
+  # Priorité 3 — villages du Nord
+  - identifiant: "https://www.facebook.com/groups/640941270165037/"
+    nom: "Grand Baie"
+    priorite: 3
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/983199348845220/"
+    nom: "Grand Baie : Nu village nu fiertE"
+    priorite: 3
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/1311787822520505/"
+    nom: "Trou aux biches village"
+    priorite: 3
+    frequence: manuel
+    prive: true
+  - identifiant: "https://www.facebook.com/groups/trouauxbiches/"
+    nom: "Trou Aux Biches - Village De La Positivité"
+    priorite: 3
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/592596364674614/"
+    nom: "Pointe aux canonniers / Grand baie / Trou aux biches / Pereybere"
+    priorite: 3
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/656155535097208/"
+    nom: "Village de Grand Baie : Groupe P.I.M.A (De Mont Choisy à Bain Boeuf, Sottise)"
+    priorite: 3
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/1910548832447509/"
+    nom: "Cap Malheureux/St François Village"
+    priorite: 3
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/392348644197934/"
+    nom: "Nu village Trou aux Biches nu Paradis"
+    priorite: 3
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/149172770400307/"
+    nom: "Goodlands Petit Raffray Vale Fond Du Sac Pd'Or Cottage C. Malheureux Grand Bay"
+    priorite: 3
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/779622849255550/"
+    nom: "Goodlands - Roche Terre - Grand Gaube"
+    priorite: 3
+    frequence: chaque_run
+  - identifiant: "https://www.facebook.com/groups/774557530079923/"
+    nom: "pointe aux canonniers info/service"
+    priorite: 3
+    frequence: manuel
+    prive: true
+
+  # Priorité 4 — annonces généralistes (bruit élevé, fréquence réduite)
+  - identifiant: "https://www.facebook.com/groups/1067575866920469/"
+    nom: "Île Maurice bon plan et partage"
+    priorite: 4
+    frequence: manuel
+    prive: true
+  - identifiant: "https://www.facebook.com/groups/wanabuy/"
+    nom: "Acheter Vender ou Echanger Buy and Sell or Exchange in Mauritius"
+    priorite: 4
+    frequence: hebdomadaire
+  - identifiant: "https://www.facebook.com/groups/3943436932404568/"
+    nom: "MAURITIUS SELLING EVERYTHING at SMALL PRICE"
+    priorite: 4
+    frequence: hebdomadaire
+  - identifiant: "https://www.facebook.com/groups/lespetitesannoncesdemaurice/"
+    nom: "Les Petites Annonces De L'ile Maurice"
+    priorite: 4
+    frequence: hebdomadaire
+  - identifiant: "https://www.facebook.com/groups/507580069383618/"
+    nom: "Aster vander buy and sell in mauritius"
+    priorite: 4
+    frequence: hebdomadaire
+  - identifiant: "https://www.facebook.com/groups/389316425309477/"
+    nom: "Marketplace Mauritius"
+    priorite: 4
+    frequence: hebdomadaire
+  - identifiant: "https://www.facebook.com/groups/115718481771743/"
+    nom: "Petites Annonces 100% Gratuites a Ile Maurice"
+    priorite: 4
+    frequence: hebdomadaire
