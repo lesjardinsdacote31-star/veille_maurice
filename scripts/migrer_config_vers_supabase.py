@@ -5,6 +5,11 @@ config_initiale.yaml est modifié à la main (ajout groupé de sources, par
 exemple) — l'usage courant (ajouter une source, l'activer/désactiver) passe
 par l'écran d'administration de l'app, pas par ce script.
 
+Attention : l'upsert se fait sur (type, identifiant). Si tu changes
+l'identifiant d'une source existante dans le YAML (ex: corriger son URL),
+ce script crée une nouvelle ligne au lieu de mettre à jour l'ancienne —
+pense à désactiver manuellement l'ancienne ligne dans Supabase après coup.
+
 Usage :
     python -m scripts.migrer_config_vers_supabase
 """
@@ -43,6 +48,9 @@ def migrer() -> None:
         compteur = 0
         for entree in config.get(cle_config, []):
             prive = entree.get("prive", False)
+            config_extraction = {}
+            if entree.get("motif_lien_annonce"):
+                config_extraction["motif_lien_annonce"] = entree["motif_lien_annonce"]
             client.table("sources").upsert(
                 {
                     "type": type_source,
@@ -51,6 +59,7 @@ def migrer() -> None:
                     "priorite": entree.get("priorite", 2),
                     "frequence": entree.get("frequence", "chaque_run"),
                     "prive": prive,
+                    "config_extraction": config_extraction,
                     # Un groupe privé reste inactif tant que l'accès (cookies
                     # + compte dédié) n'est pas mis en place manuellement.
                     "active": not prive,

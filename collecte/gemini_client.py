@@ -18,12 +18,14 @@ import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
-# Vérifié en direct (sept. 2026) : l'alias "gemini-flash-latest" pointait
-# vers un modèle preview (gemini-3.8-flash) au quota gratuit anormalement
-# bas (20 requêtes/jour). gemini-3.6-flash, le modèle stable recommandé
-# par Google au même moment, fonctionne normalement. Ce nom devra
+# Vérifié en direct (sept. 2026) : "gemini-3.6-flash" (modèle complet,
+# recommandé par Google à l'époque) est limité à 20 requêtes/jour sur le
+# plan gratuit — largement insuffisant pour 3 collectes/jour. Bascule vers
+# la variante "Lite", habituellement dotée d'un quota gratuit bien plus
+# généreux (non revérifié précisément ici pour ne pas épuiser le quota du
+# jour en testant — vérifie le chiffre réel dans AI Studio). Ce nom devra
 # probablement être revérifié périodiquement — voir README.
-MODELE_PAR_DEFAUT = "gemini-3.6-flash"
+MODELE_PAR_DEFAUT = "gemini-3.5-flash-lite"
 
 
 class ErreurGemini(RuntimeError):

@@ -74,17 +74,29 @@ option `mode_test`.
 
 ## Points d'attention
 
-- **Sources à valider avant le premier run réel** : `config_initiale.yaml`
-  pointe la plupart des sites vers leur page d'accueil, pas leur page de
-  recherche/liste réelle. Seul lexpressproperty.com a été vérifié en
-  direct (`/en/buy-mauritius/`, rendu HTML côté serveur, compatible httpx).
-  Corrige `identifiant` dans le YAML (ou directement en base une fois
-  migré) pour chaque site avant de compter sur sa collecte.
-- **propertycloud.mu** est protégé par un défi anti-bot Cloudflare qui
-  bloque même un navigateur automatisé standard — attends-toi à des
-  échecs récurrents sur cette source tant qu'une solution n'est pas
-  trouvée (proxy résidentiel payant, API alternative...). Le job continue
-  normalement sur les autres sources (isolation des échecs par source).
+- **Quota Gemini gratuit très variable selon le modèle — à surveiller.**
+  Vérifié en direct (sept. 2026) : le modèle complet `gemini-3.6-flash`
+  est limité à **20 requêtes/jour** sur le plan gratuit, largement
+  insuffisant pour 3 collectes/jour dès que le volume d'annonces
+  retenues augmente (ce qui arrivera avec Facebook, M4). Le modèle par
+  défaut est maintenant `gemini-3.5-flash-lite` (quota normalement bien
+  plus généreux pour les variantes "Lite", non re-mesuré précisément
+  pour ne pas épuiser le quota du jour en testant). **Vérifie le quota
+  réel dans AI Studio** et ajuste `GEMINI_MODEL` si besoin — ce
+  paysage change vite, ne fais pas confiance à ce README dans 6 mois
+  sans revérifier. Quand le quota est atteint, l'annonce est conservée
+  sans score plutôt que perdue (voir `collecte/gemini_client.py`).
+- **3 sites sur 11 bloqués par un défi anti-bot Cloudflare** :
+  lexpressproperty.com, propertycloud.mu, propertymap.mu. Un `httpx.get()`
+  simple ne peut pas résoudre leur défi JS, contrairement à un navigateur
+  complet. Pas de solution gratuite identifiée pour l'instant — le job
+  continue normalement sur les autres sources (isolation des échecs par
+  source), donc pas d'impact au-delà de ces 3 sites.
+- **2 sites non résolus malgré une recherche superficielle** :
+  Green-Acres Maurice (organisé par grande région, pas de page couvrant
+  directement nos 7 secteurs trouvée) et Decordier Immobilier (sa page
+  `/sale/` ne remonte que des liens YouTube). Faible priorité, à
+  revisiter si besoin — voir les commentaires dans `config_initiale.yaml`.
 - **Numéros de téléphone dans le HTML** : sur au moins un site testé, le
   numéro n'apparaît pas dans le texte visible mais dans un attribut HTML
   (`data-whatsappsend="230..."`) — l'extraction scanne donc aussi le HTML
@@ -93,6 +105,11 @@ option `mode_test`.
   GitHub Actions, etc.) se rattrape tout seul au run suivant — l'upsert
   sur `(source_id, url)` et la clé de dédup téléphone+prix rendent la
   collecte naturellement rejouable sans état à réconcilier.
+- **Changer l'`identifiant` d'une source existante dans le YAML** crée une
+  nouvelle ligne en base au lieu de mettre à jour l'ancienne (l'upsert se
+  fait sur `(type, identifiant)`) — désactive l'ancienne ligne à la main
+  après migration. Voir le commentaire en tête de
+  `scripts/migrer_config_vers_supabase.py`.
 
 ## Structure du projet
 

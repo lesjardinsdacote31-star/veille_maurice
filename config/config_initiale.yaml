@@ -82,16 +82,25 @@ sources_sites:
     nom: "Prospera (real-estate.mu)"
   - identifiant: "https://mu.green-acres.com/en"
     nom: "Green-Acres Maurice"
-  - identifiant: "https://www.ofim.mu/en/index.html"
+    # Non résolu : organisé par grande région (ex: "port-louis-city"), pas de
+    # page région couvrant directement nos 7 secteurs trouvée en recherche
+    # superficielle (pages région/district testées ne renvoient que des
+    # liens vers l'appli mobile). À revisiter si besoin.
+  - identifiant: "https://www.ofim.mu/en/sales-list.html"
     nom: "OFIM"
+    motif_lien_annonce: "ofim\\.mu/en/\\d+/"
   - identifiant: "https://myimmomauritius.com/fr"
     nom: "My Immo Mauritius"
   - identifiant: "https://www.ayoimmobilier.mu/"
     nom: "AYO Immobilier"
-  - identifiant: "https://real-estate-mauritius.mu/en/"
+  - identifiant: "https://real-estate-mauritius.mu/en/buy-property-mauritius/development-land/"
     nom: "Westimmo"
+    motif_lien_annonce: "real-estate-mauritius\\.mu/en/buy/"
   - identifiant: "https://www.decordier-immobilier.mu/en/"
     nom: "Decordier Immobilier"
+    # Non résolu : la page /sale/ ne remonte que des liens YouTube, pas
+    # d'annonces individuelles trouvées avec une recherche superficielle.
+    # À revisiter si besoin, faible priorité (petite structure).
 
 # ---------------------------------------------------------------------------
 # Pages Facebook (Apify, sans connexion, 3x/jour — priorité 1 = Nord ciblé)
