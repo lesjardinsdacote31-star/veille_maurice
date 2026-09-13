@@ -10,10 +10,11 @@ Conçue pour un coût zéro permanent (offres gratuites, pas d'essais) — voir
 
 ## État d'avancement
 
-- ✅ **M1 — Collecte des sites vers Supabase** (ce jalon)
-- ⬜ M2 — Application en lecture (PWA)
+- ✅ M1 — Collecte des sites vers Supabase
+- ✅ M2 — Application en lecture (PWA), déployée sur Cloudflare
+- ✅ **M4 — Facebook, pages et groupes (Apify)** (ce jalon — fait avant M3,
+  Facebook étant la source à plus gros volume)
 - ⬜ M3 — Notifications push
-- ⬜ M4 — Facebook (Apify)
 - ⬜ M5 — Boucles d'évolution (acteurs récurrents, nouveaux sites, auto-réparation, apprentissage)
 
 ## Mise en route (M1)
@@ -21,11 +22,17 @@ Conçue pour un coût zéro permanent (offres gratuites, pas d'essais) — voir
 ### 1. Créer le projet Supabase
 
 1. [supabase.com](https://supabase.com) → New Project (plan gratuit).
-2. Une fois créé, va dans **SQL Editor** et exécute le contenu de
-   [`supabase/migrations/0001_schema.sql`](supabase/migrations/0001_schema.sql).
-3. Récupère dans **Project Settings > API** :
+2. Une fois créé, va dans **SQL Editor** et exécute, dans l'ordre, le
+   contenu de chaque fichier dans `supabase/migrations/` (numéros
+   croissants — chacun dépend du précédent) :
+   [`0001_schema.sql`](supabase/migrations/0001_schema.sql),
+   [`0002_lecture_publique.sql`](supabase/migrations/0002_lecture_publique.sql).
+3. Récupère dans **Project Settings > API Keys** :
    - `Project URL` → `SUPABASE_URL`
-   - `service_role` key (secrète, ne jamais l'exposer côté front) → `SUPABASE_SERVICE_ROLE_KEY`
+   - `Secret key` (anciennement `service_role`, ne jamais l'exposer côté
+     front) → `SUPABASE_SERVICE_ROLE_KEY`
+   - `Publishable key` → `VITE_SUPABASE_ANON_KEY` (utilisée par l'app,
+     voir `app/.env.example`)
 
 ### 2. Créer la clé Google AI Studio (Gemini Flash)
 
@@ -36,15 +43,25 @@ Conçue pour un coût zéro permanent (offres gratuites, pas d'essais) — voir
 3. Note le nom exact du modèle Flash actif sur le plan gratuit (visible
    dans AI Studio) → `GEMINI_MODEL` dans `.env` si différent du défaut.
 
-### 3. Configurer l'environnement local
+### 3. Créer le compte Apify (collecte Facebook)
+
+1. [console.apify.com](https://console.apify.com) → crée un compte (plan
+   Free, 5$ de crédit gratuit renouvelé chaque mois).
+2. **Settings > Integrations** → copie le **API token** → `APIFY_API_TOKEN`.
+3. Aucune configuration d'acteur à faire à la main : le job appelle
+   directement `apify/facebook-posts-scraper` (pages) et
+   `apify/facebook-groups-scraper` (groupes), aucune connexion Facebook
+   requise pour le contenu public (vérifié en conditions réelles).
+
+### 4. Configurer l'environnement local
 
 ```bash
 cp .env.example .env
-# renseigne SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY
+# renseigne SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY, APIFY_API_TOKEN
 pip install -r requirements-dev.txt
 ```
 
-### 4. Amorcer la base avec la configuration initiale
+### 5. Amorcer la base avec la configuration initiale
 
 ```bash
 python -m scripts.migrer_config_vers_supabase
@@ -55,22 +72,38 @@ et 39 groupes Facebook) vers Supabase. À relancer seulement si ce fichier
 est modifié à la main — l'usage courant passe par l'écran d'administration
 de l'app (à venir en M5).
 
-### 5. Vérifier que tout tourne
+### 6. Vérifier que tout tourne
 
 ```bash
-pytest -v                        # tests de normalisation et de dédup
+pytest -v                        # tests unitaires (normalisation, dédup, fréquence, Facebook...)
 python -m collecte.main --test   # collecte réelle, sans rien écrire ni envoyer
 ```
 
-### 6. Secrets GitHub Actions (dépôt privé)
+### 7. Secrets GitHub Actions (dépôt privé)
 
 Dans **Settings > Secrets and variables > Actions** du dépôt :
-`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`.
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `APIFY_API_TOKEN`.
 
 Le workflow [`collecte.yml`](.github/workflows/collecte.yml) tourne
 3x/jour (08:00, 13:00, 20:00 heure de Maurice) et peut être lancé
 manuellement (**Actions > Collecte immobilière > Run workflow**), avec une
 option `mode_test`.
+
+### 8. Déployer l'application (Cloudflare)
+
+1. [dash.cloudflare.com](https://dash.cloudflare.com) → **Compute (Workers & Pages)**
+   → **Workers & Pages** → connecte le dépôt GitHub (dépôts privés
+   supportés).
+2. Réglages de build : **Root directory** = `app`, **Build command** =
+   `npm run build` (le fichier [`app/wrangler.jsonc`](app/wrangler.jsonc)
+   fixe le reste — sans lui, Cloudflare déduit un répertoire de sortie
+   incorrect et déploie les fichiers source au lieu du build).
+3. **Settings > Builds > Variables and secrets** (variables de *build*,
+   pas les "Variables and secrets" du Worker à l'exécution) :
+   `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (la clé publishable, pas
+   la clé secrète).
+4. Déploie. L'app est servie sur `<nom>.<compte>.workers.dev`, installable
+   comme PWA depuis Chrome Android.
 
 ## Points d'attention
 
@@ -86,6 +119,25 @@ option `mode_test`.
   paysage change vite, ne fais pas confiance à ce README dans 6 mois
   sans revérifier. Quand le quota est atteint, l'annonce est conservée
   sans score plutôt que perdue (voir `collecte/gemini_client.py`).
+- **Budget Apify plafonné à 1200 posts/mois** (`PLAFOND_APIFY_POSTS_MENSUEL`
+  dans `collecte/main.py`), tous types Facebook confondus — marge de
+  sécurité large sous les ~1900 posts que couvrirait le crédit gratuit de
+  5$/mois au tarif de l'acteur officiel (~$2,60/1000 posts). Le plafond
+  est vérifié *avant* chaque appel Apify (jamais dépassé), et ne bloque
+  jamais la collecte des sites. Ajuste la constante une fois le coût réel
+  observé dans la console Apify.
+- **Fréquence différenciée par priorité pour les groupes Facebook**
+  (`sources.frequence` en base : `chaque_run` / `quotidien` /
+  `hebdomadaire` / `manuel`, voir `collecte/frequence.py`) — les groupes
+  généralistes à fort bruit (Priorité 4) ne sont vérifiés qu'une fois par
+  semaine, les groupes ciblés (Priorité 1 et 3) à chaque passage. Chaque
+  collecte ne redemande que les posts publiés depuis le dernier passage
+  réussi sur cette source précise (`onlyPostsNewerThan`), pas une limite
+  fixe — un groupe calme ne coûte presque rien entre deux passages.
+- **3 groupes Facebook privés restent inactifs** (`sources.prive = true`) :
+  nécessitent une adhésion + cookies de session, jamais mis en place
+  (décision volontaire, voir historique du projet). Aucune action requise
+  tant que tu ne demandes pas de les activer.
 - **3 sites sur 11 bloqués par un défi anti-bot Cloudflare** :
   lexpressproperty.com, propertycloud.mu, propertymap.mu. Un `httpx.get()`
   simple ne peut pas résoudre leur défi JS, contrairement à un navigateur
@@ -114,10 +166,14 @@ option `mode_test`.
 ## Structure du projet
 
 ```
-collecte/           pipeline Python (normalisation, dédup, extraction, notation, stockage)
-config/              config_initiale.yaml — source de vérité migrée vers Supabase
-supabase/migrations/ schéma SQL
-scripts/             migration de la config vers Supabase
-tests/               tests unitaires (prix, perches, téléphones, dédup)
-.github/workflows/   collecte planifiée + tests CI
+collecte/            pipeline Python (normalisation, dédup, extraction, notation,
+                      stockage, sources_sites, sources_facebook, frequence)
+app/                  PWA React + Vite + TS, déployée sur Cloudflare (app/CAPACITOR.md
+                      documente la bascule future vers un APK)
+config/               config_initiale.yaml — source de vérité migrée vers Supabase
+supabase/migrations/  schéma SQL (appliquer dans l'ordre des numéros)
+scripts/               migration de la config vers Supabase
+tests/                tests unitaires (prix, perches, téléphones, dédup, fréquence,
+                      conversion des posts Facebook)
+.github/workflows/    collecte planifiée + tests CI
 ```

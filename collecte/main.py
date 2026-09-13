@@ -1,4 +1,4 @@
-"""Orchestrateur de la collecte des sites web.
+"""Orchestrateur de la collecte : sites web + Facebook (pages et groupes).
 
 Usage :
     python -m collecte.main            # collecte réelle : note et écrit en base
@@ -14,11 +14,13 @@ from __future__ import annotations
 import argparse
 import os
 import uuid
+from datetime import datetime, timezone
 
 import httpx
 from dotenv import load_dotenv
 
-from . import filtre, normalize, sources_sites
+from . import filtre, frequence, normalize, sources_facebook, sources_sites
+from .apify_client import ClientApify, ErreurApify
 from .extraction import DonneesBrutesAnnonce
 from .gemini_client import ClientGemini, ErreurGemini
 from .journal import Journal
@@ -26,6 +28,13 @@ from .notation import noter_annonce
 from .stockage import Stockage, creer_client
 
 TIMEOUT_HTTP_SECONDES = 20.0
+
+# Plafond mensuel de posts Facebook consommés via Apify, tous types
+# confondus (pages + groupes). $5 gratuits / mois ÷ ~$2-3 pour 1000 posts
+# ≈ 1900 posts ; on garde une marge de sécurité large plutôt que de viser
+# la limite exacte — à ajuster une fois le coût réel observé (tableau de
+# bord Apify, ou futur écran M5).
+PLAFOND_APIFY_POSTS_MENSUEL = 1200
 
 
 def _construire_texte_annonce(donnees: DonneesBrutesAnnonce) -> str:
@@ -35,15 +44,17 @@ def _construire_texte_annonce(donnees: DonneesBrutesAnnonce) -> str:
     menus/filtres ("PDS/RES", liste de tous les secteurs...) ou des
     annonces voisines ("biens similaires") qui faussent sinon la détection
     avec des données d'une autre annonce que celle visée (cf. journal M1 —
-    observé en conditions réelles sur plusieurs sites).
+    observé en conditions réelles sur plusieurs sites). Pour un post
+    Facebook, description_courte == texte_complet (pas de pollution
+    possible sur un post isolé), donc ce n'est pas redondant à vérifier.
     """
     return f"{donnees.titre or ''}\n{donnees.description_courte}"
 
 
-def traiter_site(
-    source: dict,
+def traiter_annonces_brutes(
+    annonces_brutes: list[DonneesBrutesAnnonce],
     *,
-    http_client: httpx.Client,
+    source: dict,
     client_gemini: ClientGemini | None,
     stockage: Stockage,
     secteurs: list[normalize.Secteur],
@@ -52,16 +63,10 @@ def traiter_site(
     journal: Journal,
     mode_test: bool,
 ) -> int:
-    """Traite une source de type site. Retourne le nombre d'annonces retenues.
-
-    N'importe quelle exception est capturée par l'appelant (isolation des
-    sources) — cette fonction peut lever en cas d'échec.
+    """Filtre, note et enregistre une liste d'annonces déjà extraites.
+    Partagé entre sites et Facebook — la seule différence entre les deux
+    est la façon dont annonces_brutes est produite en amont.
     """
-    annonces_brutes = sources_sites.collecter_site(
-        source, http_client=http_client, client_gemini=client_gemini
-    )
-    journal.info(f"{len(annonces_brutes)} page(s) d'annonce récupérée(s)", source_id=source["id"])
-
     nb_retenues = 0
     for donnees in annonces_brutes:
         texte_annonce = _construire_texte_annonce(donnees)
@@ -106,9 +111,93 @@ def traiter_site(
     return nb_retenues
 
 
+def traiter_site(
+    source: dict,
+    *,
+    http_client: httpx.Client,
+    client_gemini: ClientGemini | None,
+    stockage: Stockage,
+    secteurs: list[normalize.Secteur],
+    criteres: filtre.Criteres,
+    votes_passes: list[dict],
+    journal: Journal,
+    mode_test: bool,
+) -> int:
+    """Traite une source de type site. Retourne le nombre d'annonces retenues.
+
+    N'importe quelle exception est capturée par l'appelant (isolation des
+    sources) — cette fonction peut lever en cas d'échec.
+    """
+    annonces_brutes = sources_sites.collecter_site(
+        source, http_client=http_client, client_gemini=client_gemini
+    )
+    journal.info(f"{len(annonces_brutes)} page(s) d'annonce récupérée(s)", source_id=source["id"])
+
+    return traiter_annonces_brutes(
+        annonces_brutes,
+        source=source,
+        client_gemini=client_gemini,
+        stockage=stockage,
+        secteurs=secteurs,
+        criteres=criteres,
+        votes_passes=votes_passes,
+        journal=journal,
+        mode_test=mode_test,
+    )
+
+
+def traiter_facebook(
+    source: dict,
+    *,
+    client_apify: ClientApify,
+    client_gemini: ClientGemini | None,
+    stockage: Stockage,
+    secteurs: list[normalize.Secteur],
+    criteres: filtre.Criteres,
+    votes_passes: list[dict],
+    journal: Journal,
+    mode_test: bool,
+    periode: str,
+) -> int:
+    """Traite une source Facebook (page ou groupe). Retourne le nombre
+    d'annonces retenues, ou 0 sans erreur si le budget mensuel est atteint
+    (ne doit jamais interrompre la collecte des sites)."""
+    autorise = mode_test or stockage.consommer_quota(
+        "apify", periode, PLAFOND_APIFY_POSTS_MENSUEL, sources_facebook.RESULTATS_MAX_PAR_PASSAGE
+    )
+    if not autorise:
+        journal.avertissement(
+            "plafond Apify mensuel atteint, source ignorée ce passage", source_id=source["id"]
+        )
+        return 0
+
+    posts = sources_facebook.collecter_facebook(source, client_apify=client_apify)
+    journal.info(f"{len(posts)} post(s) récupéré(s)", source_id=source["id"])
+
+    annonces_brutes = [
+        donnees
+        for post in posts
+        if (donnees := sources_facebook.convertir_post(post)) is not None
+    ]
+
+    return traiter_annonces_brutes(
+        annonces_brutes,
+        source=source,
+        client_gemini=client_gemini,
+        stockage=stockage,
+        secteurs=secteurs,
+        criteres=criteres,
+        votes_passes=votes_passes,
+        journal=journal,
+        mode_test=mode_test,
+    )
+
+
 def executer(mode_test: bool) -> None:
     load_dotenv()
     execution_id = str(uuid.uuid4())
+    maintenant = datetime.now(timezone.utc)
+    periode = maintenant.strftime("%Y-%m")
 
     client_supabase = creer_client()
     stockage = Stockage(client_supabase)
@@ -119,7 +208,6 @@ def executer(mode_test: bool) -> None:
     secteurs = stockage.charger_secteurs()
     criteres = stockage.charger_criteres()
     votes_passes = stockage.charger_votes_recents()
-    sources = stockage.charger_sources_actives(type_source="site")
 
     cle_gemini = os.environ.get("GEMINI_API_KEY")
     client_gemini = ClientGemini(cle_api=cle_gemini) if cle_gemini else None
@@ -127,8 +215,11 @@ def executer(mode_test: bool) -> None:
         journal.avertissement("GEMINI_API_KEY absente : notation et repli d'extraction désactivés")
 
     total_retenues = 0
+
+    # -- Sites web ------------------------------------------------------------
+    sources_sites_actives = stockage.charger_sources_actives(type_source="site")
     with httpx.Client(timeout=TIMEOUT_HTTP_SECONDES) as http_client:
-        for source in sources:
+        for source in sources_sites_actives:
             try:
                 nb_retenues = traiter_site(
                     source,
@@ -150,11 +241,50 @@ def executer(mode_test: bool) -> None:
                 journal.erreur(f"échec de la collecte : {exc}", source_id=source["id"])
                 stockage.maj_sante_source(source["id"], ok=False, nb_resultats=0, mode_test=mode_test)
 
+    # -- Facebook (pages puis groupes) -----------------------------------------
+    cle_apify = os.environ.get("APIFY_API_TOKEN")
+    client_apify = ClientApify(token=cle_apify) if cle_apify else None
+    if client_apify is None:
+        journal.avertissement("APIFY_API_TOKEN absente : collecte Facebook désactivée")
+    else:
+        for type_source in ("page_facebook", "groupe_facebook"):
+            sources_fb = stockage.charger_sources_actives(type_source=type_source)
+            for source in sources_fb:
+                if not frequence.est_due(
+                    source.get("frequence", "chaque_run"),
+                    source.get("derniere_collecte_le"),
+                    maintenant=maintenant,
+                ):
+                    continue
+                try:
+                    nb_retenues = traiter_facebook(
+                        source,
+                        client_apify=client_apify,
+                        client_gemini=client_gemini,
+                        stockage=stockage,
+                        secteurs=secteurs,
+                        criteres=criteres,
+                        votes_passes=votes_passes,
+                        journal=journal,
+                        mode_test=mode_test,
+                        periode=periode,
+                    )
+                    stockage.maj_sante_source(
+                        source["id"], ok=True, nb_resultats=nb_retenues, mode_test=mode_test
+                    )
+                    journal.info(f"{nb_retenues} annonce(s) retenue(s)", source_id=source["id"])
+                    total_retenues += nb_retenues
+                except (Exception, ErreurApify) as exc:  # noqa: BLE001 — isolation volontaire
+                    journal.erreur(f"échec de la collecte : {exc}", source_id=source["id"])
+                    stockage.maj_sante_source(
+                        source["id"], ok=False, nb_resultats=0, mode_test=mode_test
+                    )
+
     journal.info(f"collecte terminée : {total_retenues} annonce(s) retenue(s) au total")
 
 
 def main() -> None:
-    analyseur = argparse.ArgumentParser(description="Collecte des sites immobiliers")
+    analyseur = argparse.ArgumentParser(description="Collecte des sites immobiliers et de Facebook")
     analyseur.add_argument(
         "--test",
         action="store_true",

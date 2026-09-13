@@ -161,3 +161,17 @@ class TestDetecterSecteur:
 
     def test_texte_vide(self):
         assert detecter_secteur("", self.SECTEURS) is None
+
+    def test_alias_court_ne_matche_pas_en_sous_chaine(self):
+        # Régression : l'alias "tab" (Trou aux Biches) ne doit pas matcher
+        # "established" — bug observé en conditions réelles sur une vraie
+        # annonce Facebook (terrain à Calodyne, rien à voir avec Trou aux Biches).
+        secteurs_avec_tab = self.SECTEURS + [
+            Secteur("trou_aux_biches", "Trou aux Biches", ("trou aux biches", "tab"))
+        ]
+        texte = "Established residential & tourist environment in Calodyne"
+        assert detecter_secteur(texte, secteurs_avec_tab) is None
+
+    def test_alias_court_matche_le_mot_isole(self):
+        secteurs_avec_tab = [Secteur("trou_aux_biches", "Trou aux Biches", ("tab",))]
+        assert detecter_secteur("Terrain à vendre, secteur TAB", secteurs_avec_tab) == "trou_aux_biches"

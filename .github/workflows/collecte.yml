@@ -14,9 +14,13 @@ on:
         default: false
 
 jobs:
-  collecte-sites:
+  collecte:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Mesuré en conditions réelles (sept. 2026) : ~15s par appel Apify en
+    # moyenne, jusqu'à ~60 sources Facebook actives selon les fréquences
+    # qui coïncident (+ les 11 sites, + les appels Gemini) -> jusqu'à
+    # ~15-18 min rien que pour Facebook les jours chargés. Marge large.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 
@@ -29,9 +33,11 @@ jobs:
 
       - name: Lancer la collecte
         env:
+          PYTHONUNBUFFERED: "1"
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
         run: |
           if [ "${{ inputs.mode_test }}" = "true" ]; then
             python -m collecte.main --test

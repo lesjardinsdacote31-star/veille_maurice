@@ -200,6 +200,10 @@ def detecter_secteur(texte: str, secteurs: list[Secteur]) -> str | None:
     En cas d'alias multiples correspondants, retient l'alias le plus long
     (le plus spécifique) pour éviter qu'un alias court comme "grand bay"
     ne masque un match plus précis.
+    Limites de mots pour chaque alias : un alias court comme "tab"
+    (abréviation de Trou aux Biches) ne doit matcher que le mot isolé
+    "tab", pas n'importe quel mot qui le contient (ex: "established" —
+    bug observé en conditions réelles sur de vraies annonces Facebook).
     """
     if not texte:
         return None
@@ -209,7 +213,8 @@ def detecter_secteur(texte: str, secteurs: list[Secteur]) -> str | None:
 
     for secteur in secteurs:
         for alias in secteur.alias:
-            if alias.lower() in texte_bas:
+            motif = r"\b" + re.escape(alias.lower()) + r"\b"
+            if re.search(motif, texte_bas):
                 if meilleur is None or len(alias) > meilleur[0]:
                     meilleur = (len(alias), secteur.id)
 
