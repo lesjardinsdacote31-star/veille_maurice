@@ -151,14 +151,33 @@ class Stockage:
             enregistrement["groupe_dedup_id"] = doublon.get("groupe_dedup_id") or doublon["id"]
 
         if mode_test:
-            return {**enregistrement, "id": None, "doublon_de": doublon["id"] if doublon else None}
+            return {
+                **enregistrement,
+                "id": None,
+                "doublon_de": doublon["id"] if doublon else None,
+                "nouvelle": True,
+            }
+
+        deja_existante = (
+            self.client.table("annonces")
+            .select("id")
+            .eq("source_id", source_id)
+            .eq("url", donnees.url)
+            .execute()
+            .data
+        )
 
         reponse = (
             self.client.table("annonces")
             .upsert(enregistrement, on_conflict="source_id,url")
             .execute()
         )
-        return reponse.data[0]
+        resultat = reponse.data[0]
+        # Une annonce "nouvelle" (jamais vue à cette source_id+url) déclenche
+        # une notification push ; une simple re-notation d'une annonce déjà
+        # connue (re-scoring, mise à jour de photos...) n'en déclenche pas.
+        resultat["nouvelle"] = not deja_existante
+        return resultat
 
     def enregistrer_acteur(self, telephone: str, *, filtree: bool, mode_test: bool) -> None:
         if mode_test:
@@ -219,6 +238,19 @@ class Stockage:
                 "echecs_consecutifs": 0 if ok else echecs_actuels + 1,
             }
         ).eq("id", source_id).execute()
+
+    # -- Notifications push ---------------------------------------------------
+
+    def charger_abonnements_actifs(self) -> list[dict]:
+        return self.client.table("abonnements_push").select("*").eq("actif", True).execute().data
+
+    def desactiver_abonnement(self, abonnement_id: str) -> None:
+        """Un abonnement expiré/révoqué (réponse 404/410 du navigateur) est
+        désactivé plutôt que supprimé, pour garder une trace en cas de
+        diagnostic."""
+        self.client.table("abonnements_push").update({"actif": False}).eq(
+            "id", abonnement_id
+        ).execute()
 
     # -- Compteurs d'usage (garde-fous budgétaires) --------------------------
 

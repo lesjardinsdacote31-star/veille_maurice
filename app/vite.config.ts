@@ -9,8 +9,18 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
+      // injectManifest (pas generateSW) : nécessaire pour un service worker
+      // qui gère aussi les notifications push (src/sw.ts), pas seulement le
+      // cache de l'app shell.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
+      // Le SW ne s'enregistre pas en dev par défaut (comportement normal
+      // de vite-plugin-pwa) : activé ici pour pouvoir déboguer les
+      // notifications push sans repasser par un build de prod à chaque fois.
+      devOptions: { enabled: true, type: 'module' },
       manifest: {
         name: 'Veille Maurice',
         short_name: 'Veille Maurice',
@@ -25,10 +35,10 @@ export default defineConfig({
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: {
+      injectManifest: {
         // Les données (annonces, photos) sont mises en cache par la couche
-        // d'abstraction stockage.ts (IndexedDB), pas par le service worker :
-        // il ne gère que le cache des fichiers de l'application (app shell).
+        // d'abstraction stockage.ts (localStorage), pas par le service
+        // worker : il ne précache que les fichiers de l'app shell.
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
       },
     }),

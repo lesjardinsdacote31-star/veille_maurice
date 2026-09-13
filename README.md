@@ -12,9 +12,9 @@ Conçue pour un coût zéro permanent (offres gratuites, pas d'essais) — voir
 
 - ✅ M1 — Collecte des sites vers Supabase
 - ✅ M2 — Application en lecture (PWA), déployée sur Cloudflare
-- ✅ **M4 — Facebook, pages et groupes (Apify)** (ce jalon — fait avant M3,
-  Facebook étant la source à plus gros volume)
-- ⬜ M3 — Notifications push
+- ✅ M4 — Facebook, pages et groupes (Apify) (fait avant M3, Facebook
+  étant la source à plus gros volume)
+- ✅ **M3 — Notifications push (VAPID)** (ce jalon)
 - ⬜ M5 — Boucles d'évolution (acteurs récurrents, nouveaux sites, auto-réparation, apprentissage)
 
 ## Mise en route (M1)
@@ -26,7 +26,8 @@ Conçue pour un coût zéro permanent (offres gratuites, pas d'essais) — voir
    contenu de chaque fichier dans `supabase/migrations/` (numéros
    croissants — chacun dépend du précédent) :
    [`0001_schema.sql`](supabase/migrations/0001_schema.sql),
-   [`0002_lecture_publique.sql`](supabase/migrations/0002_lecture_publique.sql).
+   [`0002_lecture_publique.sql`](supabase/migrations/0002_lecture_publique.sql),
+   [`0003_abonnements_push.sql`](supabase/migrations/0003_abonnements_push.sql).
 3. Récupère dans **Project Settings > API Keys** :
    - `Project URL` → `SUPABASE_URL`
    - `Secret key` (anciennement `service_role`, ne jamais l'exposer côté
@@ -53,15 +54,27 @@ Conçue pour un coût zéro permanent (offres gratuites, pas d'essais) — voir
    `apify/facebook-groups-scraper` (groupes), aucune connexion Facebook
    requise pour le contenu public (vérifié en conditions réelles).
 
-### 4. Configurer l'environnement local
+### 4. Générer les clés VAPID (notifications push)
+
+```bash
+python -m scripts.generer_cles_vapid
+```
+
+**Une seule fois** — en régénérer invaliderait tous les abonnements déjà
+enregistrés (chaque personne devrait réactiver les notifications). Aucun
+service tiers : la clé privée sert au job Python (`pywebpush`), la clé
+publique au navigateur pour créer l'abonnement.
+
+### 5. Configurer l'environnement local
 
 ```bash
 cp .env.example .env
-# renseigne SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY, APIFY_API_TOKEN
+# renseigne SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY,
+# APIFY_API_TOKEN, VAPID_PRIVATE_KEY, VAPID_CONTACT_EMAIL
 pip install -r requirements-dev.txt
 ```
 
-### 5. Amorcer la base avec la configuration initiale
+### 6. Amorcer la base avec la configuration initiale
 
 ```bash
 python -m scripts.migrer_config_vers_supabase
@@ -72,24 +85,26 @@ et 39 groupes Facebook) vers Supabase. À relancer seulement si ce fichier
 est modifié à la main — l'usage courant passe par l'écran d'administration
 de l'app (à venir en M5).
 
-### 6. Vérifier que tout tourne
+### 7. Vérifier que tout tourne
 
 ```bash
-pytest -v                        # tests unitaires (normalisation, dédup, fréquence, Facebook...)
+pytest -v                        # tests unitaires (normalisation, dédup, fréquence, Facebook, notifications...)
 python -m collecte.main --test   # collecte réelle, sans rien écrire ni envoyer
 ```
 
-### 7. Secrets GitHub Actions (dépôt privé)
+### 8. Secrets GitHub Actions (dépôt privé)
 
 Dans **Settings > Secrets and variables > Actions** du dépôt :
-`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `APIFY_API_TOKEN`.
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`,
+`APIFY_API_TOKEN`, `VAPID_PRIVATE_KEY` (le bloc PEM complet,
+BEGIN/END inclus), `VAPID_CONTACT_EMAIL`.
 
 Le workflow [`collecte.yml`](.github/workflows/collecte.yml) tourne
 3x/jour (08:00, 13:00, 20:00 heure de Maurice) et peut être lancé
 manuellement (**Actions > Collecte immobilière > Run workflow**), avec une
 option `mode_test`.
 
-### 8. Déployer l'application (Cloudflare)
+### 9. Déployer l'application (Cloudflare)
 
 1. [dash.cloudflare.com](https://dash.cloudflare.com) → **Compute (Workers & Pages)**
    → **Workers & Pages** → connecte le dépôt GitHub (dépôts privés
@@ -101,12 +116,32 @@ option `mode_test`.
 3. **Settings > Builds > Variables and secrets** (variables de *build*,
    pas les "Variables and secrets" du Worker à l'exécution) :
    `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (la clé publishable, pas
-   la clé secrète).
+   la clé secrète), `VITE_VAPID_PUBLIC_KEY` (la ligne publique générée à
+   l'étape 4, pas le bloc PEM privé).
 4. Déploie. L'app est servie sur `<nom>.<compte>.workers.dev`, installable
    comme PWA depuis Chrome Android.
+5. Sur ton téléphone, ouvre l'app installée et appuie sur la cloche 🔕 en
+   haut à droite pour activer les notifications (une seule fois par
+   appareil).
 
 ## Points d'attention
 
+- **Notifications testées uniquement côté génération de message et build**,
+  pas le flux d'autorisation navigateur de bout en bout — l'environnement
+  automatisé utilisé pour développer refuse les permissions de
+  notification par défaut (restriction de sécurité du bac à sable),
+  impossible à contourner depuis ce contexte. **Teste toi-même sur ton
+  téléphone** une fois déployé (cloche 🔕 dans l'app) avant de considérer
+  M3 pleinement validé.
+- **Une notification par nouvelle annonce**, pas de regroupement — sur un
+  run qui trouve plusieurs annonces d'un coup (rare vu le volume actuel),
+  tu recevras plusieurs notifications successives. À revoir si le volume
+  augmente sensiblement (regroupement en une seule notification "X
+  nouvelles annonces").
+- **Se désabonner depuis l'app ne supprime pas la ligne dans
+  `abonnements_push`** (la clé publique n'a que le droit d'insertion, pas
+  de suppression, par choix RLS) — elle se désactive automatiquement au
+  prochain envoi échoué (réponse 404/410), pas immédiatement.
 - **Quota Gemini gratuit très variable selon le modèle — à surveiller.**
   Vérifié en direct (sept. 2026) : le modèle complet `gemini-3.6-flash`
   est limité à **20 requêtes/jour** sur le plan gratuit, largement
@@ -167,13 +202,15 @@ option `mode_test`.
 
 ```
 collecte/            pipeline Python (normalisation, dédup, extraction, notation,
-                      stockage, sources_sites, sources_facebook, frequence)
+                      stockage, sources_sites, sources_facebook, frequence, notifications)
 app/                  PWA React + Vite + TS, déployée sur Cloudflare (app/CAPACITOR.md
-                      documente la bascule future vers un APK)
+                      documente la bascule future vers un APK). src/lib/plateforme/
+                      = couche d'abstraction (liens, partage, stockage, notifications).
+                      src/sw.ts = service worker personnalisé (précache + push).
 config/               config_initiale.yaml — source de vérité migrée vers Supabase
 supabase/migrations/  schéma SQL (appliquer dans l'ordre des numéros)
 scripts/               migration de la config vers Supabase
 tests/                tests unitaires (prix, perches, téléphones, dédup, fréquence,
-                      conversion des posts Facebook)
+                      conversion des posts Facebook, message de notification)
 .github/workflows/    collecte planifiée + tests CI
 ```

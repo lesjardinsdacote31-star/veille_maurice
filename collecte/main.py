@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 import httpx
 from dotenv import load_dotenv
 
-from . import filtre, frequence, normalize, sources_facebook, sources_sites
+from . import filtre, frequence, normalize, notifications, sources_facebook, sources_sites
 from .apify_client import ClientApify, ErreurApify
 from .extraction import DonneesBrutesAnnonce
 from .gemini_client import ClientGemini, ErreurGemini
@@ -99,7 +99,7 @@ def traiter_annonces_brutes(
                     source_id=source["id"],
                 )
 
-        stockage.enregistrer_annonce(
+        annonce_enregistree = stockage.enregistrer_annonce(
             source_id=source["id"],
             donnees=donnees,
             secteur_id=secteur_id,
@@ -107,6 +107,14 @@ def traiter_annonces_brutes(
             mode_test=mode_test,
         )
         nb_retenues += 1
+
+        if annonce_enregistree.get("nouvelle"):
+            try:
+                notifications.notifier_nouvelle_annonce(
+                    stockage, annonce_enregistree, mode_test=mode_test
+                )
+            except notifications.ErreurNotification as exc:
+                journal.avertissement(f"notification non envoyée : {exc}", source_id=source["id"])
 
     return nb_retenues
 

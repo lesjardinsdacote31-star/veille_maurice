@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useAnnonces } from '../hooks/useAnnonces'
 import { useSecteurs } from '../hooks/useSecteurs'
 import { CarteAnnonce } from '../components/CarteAnnonce'
+import { BoutonNotifications } from '../components/BoutonNotifications'
 import { LIBELLES_STATUT, LIBELLES_TYPE_BIEN } from '../lib/format'
 
 export function Flux() {
@@ -29,7 +30,10 @@ export function Flux() {
   return (
     <div className="flex min-h-full flex-col bg-slate-900">
       <header className="sticky top-0 z-10 border-b border-slate-800 bg-slate-900/95 px-4 pb-3 pt-4 backdrop-blur">
-        <h1 className="text-xl font-semibold text-slate-50">Veille Maurice</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-semibold text-slate-50">Veille Maurice</h1>
+          <BoutonNotifications />
+        </div>
         {horsLigne && (
           <p className="mt-1 text-sm text-amber-400">Hors ligne — dernières données chargées</p>
         )}
