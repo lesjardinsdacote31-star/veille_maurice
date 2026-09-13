@@ -154,13 +154,34 @@ option `mode_test`.
   paysage change vite, ne fais pas confiance à ce README dans 6 mois
   sans revérifier. Quand le quota est atteint, l'annonce est conservée
   sans score plutôt que perdue (voir `collecte/gemini_client.py`).
-- **Budget Apify plafonné à 1200 posts/mois** (`PLAFOND_APIFY_POSTS_MENSUEL`
-  dans `collecte/main.py`), tous types Facebook confondus — marge de
-  sécurité large sous les ~1900 posts que couvrirait le crédit gratuit de
-  5$/mois au tarif de l'acteur officiel (~$2,60/1000 posts). Le plafond
-  est vérifié *avant* chaque appel Apify (jamais dépassé), et ne bloque
-  jamais la collecte des sites. Ajuste la constante une fois le coût réel
-  observé dans la console Apify.
+- **Incident de coût Apify (13 sept. 2026) : ~9$ des 10$ de crédit gratuit
+  consommés en un seul passage réel.** Cause : l'architecture initiale
+  lançait un acteur Apify par source (un par groupe/page Facebook), or
+  Apify facture ces acteurs un **forfait fixe par lancement (~0,076$,
+  mesuré via `/v2/actor-runs`), quasi indépendant du nombre de résultats
+  rendus** — la tarification théorique "$/1000 posts" ne s'applique pas
+  en pratique à ces acteurs. Avec ~60 sources Facebook, un seul passage
+  = ~60 lancements = ~4,50$, et 2 passages ont suffi à épuiser le budget.
+  **Corrigé** en regroupant toutes les sources d'un même type (pages OU
+  groupes) dans un seul lancement Apify (`startUrls` multiples) —
+  `resultsLimit` a été vérifié comme s'appliquant par URL et non
+  globalement (2 URLs, resultsLimit=6 → 6 résultats par URL), donc
+  regrouper N sources coûte le même forfait unique tout en retournant
+  les mêmes résultats par source qu'un lancement individuel. Voir
+  `collecte/sources_facebook.py` (`collecter_facebook_groupe`).
+- **Budget Apify plafonné à 55 lancements/mois**
+  (`PLAFOND_APIFY_LANCEMENTS_MENSUEL` dans `collecte/main.py`, unité =
+  un lancement Apify groupé, pas un post) : 2 lancements/jour (1 pages +
+  1 groupes) × 30 jours = 60, sous les ~65 lancements que couvrent les
+  5$ gratuits mensuels au tarif réel de ~0,076$/lancement — marge de
+  sécurité volontaire. Facebook n'est déclenché qu'une fois par jour
+  (`COLLECTER_FACEBOOK`, voir `.github/workflows/collecte.yml`) pour ne
+  jamais dépasser ce rythme. Le plafond est vérifié *avant* chaque appel
+  Apify (jamais dépassé) et ne bloque jamais la collecte des sites. Le
+  compteur (`compteurs_usage`, service `apify`) se remet à zéro chaque
+  mois (nouvelle ligne par `periode`) ; il n'y a pas de carte bancaire
+  liée au compte Apify, donc pas de risque de facturation au-delà du
+  crédit gratuit — au pire la collecte Facebook du mois s'arrête.
 - **Fréquence différenciée par priorité pour les groupes Facebook**
   (`sources.frequence` en base : `chaque_run` / `quotidien` /
   `hebdomadaire` / `manuel`, voir `collecte/frequence.py`) — les groupes
