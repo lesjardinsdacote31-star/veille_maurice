@@ -15,10 +15,15 @@ import json
 import os
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
-MODELE_PAR_DEFAUT = "gemini-flash-latest"
+# Vérifié en direct (sept. 2026) : l'alias "gemini-flash-latest" pointait
+# vers un modèle preview (gemini-3.8-flash) au quota gratuit anormalement
+# bas (20 requêtes/jour). gemini-3.6-flash, le modèle stable recommandé
+# par Google au même moment, fonctionne normalement. Ce nom devra
+# probablement être revérifié périodiquement — voir README.
+MODELE_PAR_DEFAUT = "gemini-3.6-flash"
 
 
 class ErreurGemini(RuntimeError):
@@ -32,7 +37,13 @@ class ClientGemini:
             raise ErreurGemini("GEMINI_API_KEY manquante")
         self.modele = modele or os.environ.get("GEMINI_MODEL", MODELE_PAR_DEFAUT)
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=2, max=30))
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=2, min=2, max=30),
+        retry=retry_if_exception_type(ErreurGemini),
+        reraise=True,  # sans ça, tenacity enveloppe l'échec final dans RetryError,
+        # ce qui empêche l'appelant d'attraper ErreurGemini spécifiquement.
+    )
     def generer_json(
         self, prompt: str, *, schema: dict | None = None, timeout: float = 30.0
     ) -> dict:
@@ -46,13 +57,22 @@ class ClientGemini:
             "generationConfig": config_generation,
         }
 
-        reponse = httpx.post(url, params={"key": self.cle_api}, json=payload, timeout=timeout)
+        try:
+            reponse = httpx.post(url, params={"key": self.cle_api}, json=payload, timeout=timeout)
+        except httpx.RequestError as exc:
+            raise ErreurGemini(f"erreur réseau vers Gemini : {exc}") from exc
 
         if reponse.status_code == 429:
-            # Quota gratuit dépassé pour la minute/le jour : on laisse tenacity
-            # réessayer avec backoff, l'appelant doit rester tolérant à l'échec finale.
+            # Quota gratuit dépassé pour la minute/le jour.
             raise ErreurGemini(f"limite de débit Gemini atteinte : {reponse.text}")
-        reponse.raise_for_status()
+        if reponse.status_code >= 500:
+            # Surcharge temporaire côté Google (fréquent sur le plan gratuit) :
+            # convertie en ErreurGemini pour que tenacity la réessaie.
+            raise ErreurGemini(f"Gemini indisponible ({reponse.status_code}) : {reponse.text}")
+        try:
+            reponse.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise ErreurGemini(f"erreur Gemini ({reponse.status_code}) : {reponse.text}") from exc
 
         data = reponse.json()
         try:

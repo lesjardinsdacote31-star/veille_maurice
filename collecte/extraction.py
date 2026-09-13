@@ -47,6 +47,10 @@ class DonneesBrutesAnnonce:
     url: str
     titre: str | None = None
     texte_complet: str = ""  # titre + description + OCR : sert au filtre dur et à Gemini
+    description_courte: str = ""  # titre + description seuls (sans nav/menus/"biens
+    # similaires" de la page) : sert spécifiquement à la détection de secteur, pour
+    # éviter qu'un nom de secteur mentionné ailleurs sur la page (menu, sidebar)
+    # ne pollue la détection de l'annonce elle-même.
     prix_roupies: float | None = None
     photos: list[str] = field(default_factory=list)
     telephones: list[str] = field(default_factory=list)
@@ -121,6 +125,7 @@ def _depuis_json_ld(html: str) -> DonneesBrutesAnnonce | None:
             url=bloc.get("url", ""),
             titre=titre,
             texte_complet=texte_complet,
+            description_courte=texte_complet,
             prix_roupies=_prix_depuis_offre(bloc.get("offers")),
             photos=_images_depuis_champ(bloc.get("image")),
             telephones=normalize.normaliser_telephone(texte_complet),
@@ -151,24 +156,39 @@ def _texte_visible(html: str) -> str:
 def _depuis_opengraph_et_heuristiques(html: str, url: str) -> DonneesBrutesAnnonce:
     og = _extraire_opengraph(html)
     texte_page = _texte_visible(html)
-    texte_complet = f"{og.get('title', '')}\n{og.get('description', '')}\n{texte_page}"
+    description_courte = f"{og.get('title', '')}\n{og.get('description', '')}"
+    texte_complet = f"{description_courte}\n{texte_page}"
 
     # Les numéros de téléphone/WhatsApp sont souvent injectés dans des
     # attributs HTML (ex: data-whatsappsend="230...", href="tel:...") et pas
     # dans le texte visible : on les cherche donc aussi dans le HTML brut,
-    # en plus du texte de la page. Le prix, lui, reste cherché uniquement
-    # dans le texte visible pour éviter les faux positifs (ID, hash CSS...).
+    # en plus du texte de la page.
     telephones = normalize.normaliser_telephone(f"{texte_complet}\n{html}")
+
+    # Prix, surface et chambres : on privilégie description_courte (titre +
+    # og:description, propre à l'annonce) et on ne retombe sur le texte
+    # complet de la page que si elle n'y trouve rien. Le texte complet
+    # inclut souvent des menus/filtres ("PDS/RES", "Trou aux Biches"...) ou
+    # des annonces voisines ("biens similaires") qui faussent sinon ces
+    # valeurs avec des données d'une autre annonce que celle visée.
+    prix = normalize.normaliser_prix(description_courte) or normalize.normaliser_prix(texte_complet)
+    surface = normalize.normaliser_perches(description_courte) or normalize.normaliser_perches(
+        texte_complet
+    )
+    chambres = normalize.normaliser_chambres(description_courte) or normalize.normaliser_chambres(
+        texte_complet
+    )
 
     return DonneesBrutesAnnonce(
         url=url,
         titre=og.get("title"),
         texte_complet=texte_complet,
-        prix_roupies=normalize.normaliser_prix(texte_complet),
+        description_courte=description_courte,
+        prix_roupies=prix,
         photos=[og["image"]] if og.get("image") else [],
         telephones=telephones,
-        surface_terrain_perches=normalize.normaliser_perches(texte_complet),
-        chambres=normalize.normaliser_chambres(texte_complet),
+        surface_terrain_perches=surface,
+        chambres=chambres,
         couche_utilisee="opengraph",
     )
 
@@ -198,6 +218,7 @@ def _depuis_gemini(
         url=url,
         titre=resultat.get("titre"),
         texte_complet=texte_brut,
+        description_courte=f"{resultat.get('titre', '')}\n{resultat.get('localisation_texte', '')}",
         prix_roupies=resultat.get("prix_roupies"),
         telephones=resultat.get("telephones") or normalize.normaliser_telephone(texte_brut),
         surface_terrain_perches=resultat.get("surface_terrain_perches"),

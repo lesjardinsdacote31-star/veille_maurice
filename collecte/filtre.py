@@ -6,6 +6,7 @@ que sur ce qui survit à ce filtre.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -35,7 +36,11 @@ def filtrer(
     texte_bas = (texte_complet or "").lower()
 
     for mot in criteres.mots_exclus:
-        if mot.lower() in texte_bas:
+        # Limites de mots : un mot court comme "res" (PDS/IRS/RES) ne doit
+        # matcher que le mot isolé "res", pas n'importe quel mot qui le
+        # contient (ex: "residential", omniprésent dans l'immobilier).
+        motif = r"\b" + re.escape(mot.lower()) + r"\b"
+        if re.search(motif, texte_bas):
             return ResultatFiltre(False, f"mot_exclu:{mot}")
 
     if secteur_id is None:

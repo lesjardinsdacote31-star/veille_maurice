@@ -13,13 +13,13 @@ continue sur les sites suivants.
 from __future__ import annotations
 
 import re
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 
 from .extraction import DonneesBrutesAnnonce, extraire_annonce
-from .gemini_client import ClientGemini
+from .gemini_client import ClientGemini, ErreurGemini
 
 EN_TETES_HTTP = {
     "User-Agent": (
@@ -47,10 +47,18 @@ def decouvrir_liens_annonces(
     soup = BeautifulSoup(html, "html.parser")
     motif = re.compile(motif_regex, re.IGNORECASE) if motif_regex else MOTIF_LIEN_ANNONCE_PAR_DEFAUT
 
+    domaine_base = urlparse(url_base).netloc
+
     liens: set[str] = set()
     for balise_a in soup.find_all("a", href=True):
         url_absolue = urljoin(url_base, balise_a["href"]).split("#")[0]
-        if url_absolue.startswith(url_base.split("//", 1)[0] + "//") and motif.search(url_absolue):
+        # Restreint au même domaine que la page d'index : évite les boutons
+        # de partage (Pinterest, WhatsApp...) qui embarquent l'URL de
+        # l'annonce d'origine dans leur propre URL externe et matcheraient
+        # sinon le motif ci-dessous par erreur.
+        if urlparse(url_absolue).netloc != domaine_base:
+            continue
+        if motif.search(url_absolue):
             liens.add(url_absolue)
 
     return list(liens)[:NB_MAX_ANNONCES_PAR_PASSAGE]
@@ -86,7 +94,13 @@ def collecter_site(
         except httpx.HTTPError:
             continue  # une annonce isolée qui échoue ne doit pas arrêter le site
 
-        donnees = extraire_annonce(reponse.text, url_annonce, client_gemini=client_gemini)
+        try:
+            donnees = extraire_annonce(reponse.text, url_annonce, client_gemini=client_gemini)
+        except ErreurGemini:
+            # Le repli Gemini de l'extraction a échoué (ex: surcharge du
+            # plan gratuit) : on saute cette annonce, elle sera retentée au
+            # prochain passage planifié plutôt que de faire échouer tout le site.
+            continue
         resultats.append(donnees)
 
     return resultats

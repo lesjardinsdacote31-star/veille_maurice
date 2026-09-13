@@ -28,8 +28,16 @@ from .stockage import Stockage, creer_client
 TIMEOUT_HTTP_SECONDES = 20.0
 
 
-def _construire_texte_pour_filtre(donnees: DonneesBrutesAnnonce) -> str:
-    return f"{donnees.titre or ''}\n{donnees.texte_complet}"
+def _construire_texte_annonce(donnees: DonneesBrutesAnnonce) -> str:
+    """Texte utilisé pour la détection de secteur et le filtre dur
+    (mots exclus). Volontairement restreint au titre + description ciblée,
+    PAS texte_complet : le texte complet de la page inclut souvent des
+    menus/filtres ("PDS/RES", liste de tous les secteurs...) ou des
+    annonces voisines ("biens similaires") qui faussent sinon la détection
+    avec des données d'une autre annonce que celle visée (cf. journal M1 —
+    observé en conditions réelles sur plusieurs sites).
+    """
+    return f"{donnees.titre or ''}\n{donnees.description_courte}"
 
 
 def traiter_site(
@@ -56,8 +64,8 @@ def traiter_site(
 
     nb_retenues = 0
     for donnees in annonces_brutes:
-        texte_filtre = _construire_texte_pour_filtre(donnees)
-        secteur_id = normalize.detecter_secteur(texte_filtre, secteurs)
+        texte_annonce = _construire_texte_annonce(donnees)
+        secteur_id = normalize.detecter_secteur(texte_annonce, secteurs)
 
         # Compte l'acteur même si l'annonce est ensuite filtrée (détection
         # des agents récurrents sur tout ce qui est vu, pas seulement retenu).
@@ -65,7 +73,7 @@ def traiter_site(
             stockage.enregistrer_acteur(telephone, filtree=False, mode_test=mode_test)
 
         resultat_filtre = filtre.filtrer(
-            texte_complet=texte_filtre,
+            texte_complet=texte_annonce,
             prix_roupies=donnees.prix_roupies,
             secteur_id=secteur_id,
             criteres=criteres,

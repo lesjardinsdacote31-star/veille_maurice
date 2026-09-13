@@ -29,6 +29,19 @@ def test_rejette_mot_exclu_location():
     assert resultat.raison_rejet.startswith("mot_exclu")
 
 
+def test_naccepte_pas_residentiel_comme_faux_positif_de_res():
+    # Régression : "res" (RES = Real Estate Scheme) ne doit pas matcher en
+    # sous-chaîne le mot "résidentiel"/"residential", omniprésent dans les
+    # annonces immobilières légitimes (bug observé en conditions réelles).
+    resultat = filtrer(
+        texte_complet="RESIDENTIAL LAND FOR SALE AT PEREYBERE",
+        prix_roupies=8_500_000,
+        secteur_id="pereybere",
+        criteres=CRITERES,
+    )
+    assert resultat.retenue is True
+
+
 def test_rejette_pds():
     resultat = filtrer(
         texte_complet="Villa PDS à Grand Baie",
