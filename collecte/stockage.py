@@ -11,7 +11,7 @@ from supabase import Client, create_client
 
 from . import dedup, normalize
 from .extraction import DonneesBrutesAnnonce
-from .filtre import Criteres
+from .filtre import Criteres, FourchetteBudget
 from .notation import Notation
 
 
@@ -40,9 +40,12 @@ class Stockage:
             raise RuntimeError("paramètre 'criteres' absent — lancer scripts/migrer_config_vers_supabase.py")
         valeur = reponse.data[0]["valeur"]
         return Criteres(
-            budget_min_roupies=valeur["budget_min_roupies"],
-            budget_max_roupies=valeur["budget_max_roupies"],
-            types_acceptes=tuple(valeur["types_acceptes"]),
+            budgets_par_type={
+                type_bien: FourchetteBudget(
+                    min_roupies=fourchette["min_roupies"], max_roupies=fourchette["max_roupies"]
+                )
+                for type_bien, fourchette in valeur["budgets_par_type"].items()
+            },
             mots_exclus=tuple(valeur["mots_exclus"]),
         )
 

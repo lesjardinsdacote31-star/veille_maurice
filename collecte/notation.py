@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .extraction import DonneesBrutesAnnonce
+from .filtre import Criteres
 from .gemini_client import ClientGemini
 
 SCHEMA_NOTATION = {
@@ -46,14 +47,27 @@ def _formater_exemples_votes(votes_passes: list[dict]) -> str:
     return "\n".join(lignes)
 
 
-def construire_prompt(donnees: DonneesBrutesAnnonce, votes_passes: list[dict]) -> str:
+def _formater_budgets(criteres: Criteres) -> str:
+    lignes = [
+        f"- {type_bien} : entre {f.min_roupies:,.0f} et {f.max_roupies:,.0f} Rs".replace(",", " ")
+        for type_bien, f in criteres.budgets_par_type.items()
+    ]
+    return "\n".join(lignes)
+
+
+def construire_prompt(
+    donnees: DonneesBrutesAnnonce, votes_passes: list[dict], criteres: Criteres
+) -> str:
     return f"""Tu notes une annonce immobilière mauricienne pour un acheteur
-qui cherche une maison individuelle ou un terrain constructible, entre 5 et
-10 millions de roupies, proche de la plage, dans l'un de ces secteurs du
-Nord : Trou aux Biches, Mont Choisy, Pointe aux Canonniers, Grand Baie,
-Péreybère, Bain Boeuf, Cap Malheureux. Les travaux sont acceptés si le prix
-le justifie. Aucune location, aucun programme PDS/IRS/RES, aucune vente sur
-plan ne l'intéresse.
+qui cherche une maison individuelle ou un terrain constructible, proche de
+la plage, dans l'un de ces secteurs du Nord : Trou aux Biches, Mont Choisy,
+Pointe aux Canonniers, Grand Baie, Péreybère, Bain Boeuf, Cap Malheureux.
+
+Budget selon le type de bien :
+{_formater_budgets(criteres)}
+
+Les travaux sont acceptés si le prix le justifie. Aucune location, aucun
+programme PDS/IRS/RES, aucune vente sur plan ne l'intéresse.
 
 Voici ses votes passés sur d'autres annonces, à titre d'exemples de goût :
 {_formater_exemples_votes(votes_passes)}
@@ -76,9 +90,12 @@ Réponds uniquement avec le JSON demandé :
 
 
 def noter_annonce(
-    client: ClientGemini, donnees: DonneesBrutesAnnonce, votes_passes: list[dict]
+    client: ClientGemini,
+    donnees: DonneesBrutesAnnonce,
+    votes_passes: list[dict],
+    criteres: Criteres,
 ) -> Notation:
-    prompt = construire_prompt(donnees, votes_passes)
+    prompt = construire_prompt(donnees, votes_passes, criteres)
     resultat = client.generer_json(prompt, schema=SCHEMA_NOTATION)
 
     return Notation(

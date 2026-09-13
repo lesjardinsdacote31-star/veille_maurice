@@ -131,6 +131,7 @@ def _depuis_json_ld(html: str) -> DonneesBrutesAnnonce | None:
             telephones=normalize.normaliser_telephone(texte_complet),
             surface_terrain_perches=normalize.normaliser_perches(texte_complet),
             chambres=chambres or normalize.normaliser_chambres(texte_complet),
+            type_bien=normalize.detecter_type_bien(texte_complet),
             couche_utilisee="json_ld",
         )
     return None
@@ -178,6 +179,10 @@ def _depuis_opengraph_et_heuristiques(html: str, url: str) -> DonneesBrutesAnnon
     chambres = normalize.normaliser_chambres(description_courte) or normalize.normaliser_chambres(
         texte_complet
     )
+    # Le type de bien est détecté sur description_courte uniquement : le
+    # texte complet mentionne souvent d'autres types de biens (menu de
+    # catégories, biens similaires) qui feraient mal classer l'annonce.
+    type_bien = normalize.detecter_type_bien(description_courte)
 
     return DonneesBrutesAnnonce(
         url=url,
@@ -189,6 +194,7 @@ def _depuis_opengraph_et_heuristiques(html: str, url: str) -> DonneesBrutesAnnon
         telephones=telephones,
         surface_terrain_perches=surface,
         chambres=chambres,
+        type_bien=type_bien,
         couche_utilisee="opengraph",
     )
 

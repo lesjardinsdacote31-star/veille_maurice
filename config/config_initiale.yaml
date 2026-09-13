@@ -7,9 +7,17 @@
 # de sources se font depuis l'écran d'administration de l'app, pas ici.
 
 criteres:
-  budget_min_roupies: 5000000
-  budget_max_roupies: 10000000
-  types_acceptes: [maison, terrain]
+  # Budget par type de bien — un terrain et une maison n'ont pas la même
+  # fourchette. Ajustable directement dans Supabase (table parametres,
+  # ligne cle='criteres') sans relancer ce script. La valeur "terrain" est
+  # un point de départ provisoire, à affiner.
+  budgets_par_type:
+    maison:
+      min_roupies: 5000000
+      max_roupies: 10000000
+    terrain:
+      min_roupies: 3500000
+      max_roupies: 10000000
   mots_exclus:
     - pds
     - irs

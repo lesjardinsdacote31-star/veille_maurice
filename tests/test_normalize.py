@@ -1,6 +1,7 @@
 from collecte.normalize import (
     Secteur,
     detecter_secteur,
+    detecter_type_bien,
     normaliser_chambres,
     normaliser_perches,
     normaliser_prix,
@@ -96,6 +97,42 @@ class TestNormaliserChambres:
 
     def test_aucune_mention(self):
         assert normaliser_chambres("Terrain constructible") is None
+
+
+class TestDetecterTypeBien:
+    def test_terrain_anglais(self):
+        assert detecter_type_bien("Residential Land for Sale at Pereybere") == "terrain"
+
+    def test_terrain_francais(self):
+        assert detecter_type_bien("Terrain résidentiel à vendre") == "terrain"
+
+    def test_maison_villa(self):
+        assert detecter_type_bien("Villa à vendre à Grand Baie") == "maison"
+
+    def test_maison_anglais(self):
+        assert detecter_type_bien("House for sale at Terre Rouge") == "maison"
+
+    def test_appartement_classe_comme_autre(self):
+        assert detecter_type_bien("Appartement à vendre à Balaclava") == "autre"
+
+    def test_penthouse_classe_comme_autre(self):
+        assert detecter_type_bien("Penthouse à Vendre à Grand Baie") == "autre"
+
+    def test_aucun_mot_cle(self):
+        assert detecter_type_bien("Belle opportunité à ne pas manquer") is None
+
+    def test_terrain_prioritaire_sur_mention_de_contact_office(self):
+        # Régression : "Office: 5433 0678" (numéro de l'agence) ne doit pas
+        # faire classer un terrain comme "autre" (bug observé en conditions
+        # réelles — le mot générique "office" arrivait en fin de texte).
+        texte = (
+            "RESIDENTIAL LAND FOR SALE AT PEREYBERE. An excellent opportunity. "
+            "For more information: Office: 5433 0678"
+        )
+        assert detecter_type_bien(texte) == "terrain"
+
+    def test_texte_vide(self):
+        assert detecter_type_bien("") is None
 
 
 class TestDetecterSecteur:

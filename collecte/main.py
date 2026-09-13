@@ -76,6 +76,7 @@ def traiter_site(
             texte_complet=texte_annonce,
             prix_roupies=donnees.prix_roupies,
             secteur_id=secteur_id,
+            type_bien=donnees.type_bien,
             criteres=criteres,
         )
         if not resultat_filtre.retenue:
@@ -86,7 +87,7 @@ def traiter_site(
         notation = None
         if client_gemini is not None:
             try:
-                notation = noter_annonce(client_gemini, donnees, votes_passes)
+                notation = noter_annonce(client_gemini, donnees, votes_passes, criteres)
             except ErreurGemini as exc:
                 journal.avertissement(
                     f"échec de notation Gemini, annonce conservée sans score : {exc}",

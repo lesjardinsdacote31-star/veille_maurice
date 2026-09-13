@@ -147,6 +147,46 @@ def normaliser_chambres(texte: str) -> int | None:
     return None
 
 
+_MOTS_TERRAIN = ("terrain", "land", "plot", "lotissement")
+_MOTS_MAISON = ("maison", "house", "villa", "bungalow")
+# Volontairement sans mots trop génériques ("office", "bureau" seuls) : ils
+# matchent souvent une mention de contact ("Office: 5433...") plutôt qu'un
+# vrai bureau à vendre, ce qui faisait mal classer des terrains/maisons.
+_MOTS_AUTRE = (
+    "appartement", "apartment", "penthouse", "condo", "condominium",
+    "duplex", "townhouse", "studio", "office space", "espace bureau",
+    "warehouse", "entrepot", "commercial space", "shop", "boutique",
+)
+
+
+def detecter_type_bien(texte: str) -> str | None:
+    """Classe une annonce en 'maison', 'terrain' ou 'autre' à partir de mots-clés.
+
+    Terrain et maison sont vérifiés avant "autre" : un mot générique
+    ambigu ailleurs dans le texte (coordonnées de contact...) ne doit pas
+    l'emporter sur une mention claire et spécifique du bien lui-même.
+    Retourne None si rien de reconnaissable (ex: description trop vague) —
+    à distinguer de 'autre', qui signifie explicitement "ni maison ni terrain"
+    (appartement, bureau...).
+    """
+    if not texte:
+        return None
+
+    texte_bas = texte.lower()
+
+    for mot in _MOTS_TERRAIN:
+        if re.search(r"\b" + re.escape(mot) + r"\b", texte_bas):
+            return "terrain"
+    for mot in _MOTS_MAISON:
+        if re.search(r"\b" + re.escape(mot) + r"\b", texte_bas):
+            return "maison"
+    for mot in _MOTS_AUTRE:
+        if re.search(r"\b" + re.escape(mot) + r"\b", texte_bas):
+            return "autre"
+
+    return None
+
+
 @dataclass(frozen=True)
 class Secteur:
     id: str
