@@ -111,9 +111,11 @@ def traiter_annonces_brutes(
 
         if annonce_enregistree.get("nouvelle"):
             try:
-                notifications.notifier_nouvelle_annonce(
+                nb_envoyees = notifications.notifier_nouvelle_annonce(
                     stockage, annonce_enregistree, mode_test=mode_test
                 )
+                if not mode_test:
+                    journal.info(f"{nb_envoyees} notification(s) envoyée(s)", source_id=source["id"])
             except notifications.ErreurNotification as exc:
                 journal.avertissement(f"notification non envoyée : {exc}", source_id=source["id"])
 

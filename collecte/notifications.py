@@ -87,6 +87,9 @@ def construire_message(annonce: dict) -> tuple[str, str, str]:
     return titre, corps, url
 
 
-def notifier_nouvelle_annonce(stockage: Stockage, annonce: dict, *, mode_test: bool) -> None:
+def notifier_nouvelle_annonce(stockage: Stockage, annonce: dict, *, mode_test: bool) -> int:
+    """Retourne le nombre d'envois réussis (0 en mode test, ou si personne
+    n'est abonné — à distinguer d'un échec silencieux côté appelant en
+    comparant avec le nombre d'abonnements actifs si besoin)."""
     titre, corps, url = construire_message(annonce)
-    envoyer_a_tous(stockage, titre=titre, corps=corps, url=url, mode_test=mode_test)
+    return envoyer_a_tous(stockage, titre=titre, corps=corps, url=url, mode_test=mode_test)
