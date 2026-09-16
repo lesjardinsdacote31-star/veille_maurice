@@ -18,13 +18,19 @@ class Journal:
         print(f"{prefixe} {message}{suffixe} {details if details else ''}".rstrip())
 
         if not self.mode_test and self.stockage is not None:
-            self.stockage.journaliser(
-                self.execution_id,
-                source_id=source_id,
-                niveau=niveau,
-                message=message,
-                details=details,
-            )
+            try:
+                self.stockage.journaliser(
+                    self.execution_id,
+                    source_id=source_id,
+                    niveau=niveau,
+                    message=message,
+                    details=details,
+                )
+            except Exception as exc:  # noqa: BLE001 — la journalisation ne doit
+                # jamais faire planter le job (ex: coupure réseau passagère
+                # vers Supabase) ; le message reste visible via le print()
+                # ci-dessus (stdout, capturé par les logs GitHub Actions).
+                print(f"[AVERTISSEMENT] échec d'écriture du journal en base : {exc}")
 
     def info(self, message: str, *, source_id: str | None = None, **details) -> None:
         self._log("info", message, source_id, details)
