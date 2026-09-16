@@ -194,17 +194,31 @@ option `mode_test`.
   nécessitent une adhésion + cookies de session, jamais mis en place
   (décision volontaire, voir historique du projet). Aucune action requise
   tant que tu ne demandes pas de les activer.
-- **3 sites sur 11 bloqués par un défi anti-bot Cloudflare** :
-  lexpressproperty.com, propertycloud.mu, propertymap.mu. Un `httpx.get()`
-  simple ne peut pas résoudre leur défi JS, contrairement à un navigateur
-  complet. Pas de solution gratuite identifiée pour l'instant — le job
-  continue normalement sur les autres sources (isolation des échecs par
-  source), donc pas d'impact au-delà de ces 3 sites.
+- **4 sites bloqués par un défi anti-bot Cloudflare** :
+  lexpressproperty.com, propertycloud.mu, propertymap.mu, aroniarealestate.com
+  (désactivé en base, `sources.active = false`). Un `httpx.get()` simple ne
+  peut pas résoudre leur défi JS, contrairement à un navigateur complet. Pas
+  de solution gratuite identifiée pour l'instant — le job continue
+  normalement sur les autres sources (isolation des échecs par source), donc
+  pas d'impact au-delà de ces sites.
 - **2 sites non résolus malgré une recherche superficielle** :
   Green-Acres Maurice (organisé par grande région, pas de page couvrant
   directement nos 7 secteurs trouvée) et Decordier Immobilier (sa page
   `/sale/` ne remonte que des liens YouTube). Faible priorité, à
   revisiter si besoin — voir les commentaires dans `config_initiale.yaml`.
+- **Liste de sites élargie à 34 sites actifs (sept. 2026)**, au-delà des 11
+  initiaux — recherche large volontaire (agences locales peu connues,
+  portails généralistes), voir `sources` en base pour la liste complète.
+  Le détecteur de liens vers les fiches (`sources_sites.decouvrir_liens_annonces`)
+  utilise une heuristique générique par regex ; certains sites avec un motif
+  d'URL atypique nécessitent une regex dédiée via `sources.config_extraction
+  .motif_lien_annonce` (exemples en base : Kezia `/bien/\d+/`, MCL Immobilier
+  `nbien=\d+`, Property Finder Mauritius `/properties/\d+`). **5 sites
+  restent à 0 résultat malgré une page d'index accessible** (Harris
+  Properties, Nestenn Grand Baie, Seeff, FM Immobilier, Immo23) : leurs
+  fiches individuelles semblent chargées en JavaScript (pas de lien `<a
+  href>` exploitable dans le HTML brut) — non prioritaire, ils ne coûtent
+  rien (pas d'Apify) et n'affectent pas les autres sources.
 - **Numéros de téléphone dans le HTML** : sur au moins un site testé, le
   numéro n'apparaît pas dans le texte visible mais dans un attribut HTML
   (`data-whatsappsend="230..."`) — l'extraction scanne donc aussi le HTML
