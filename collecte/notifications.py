@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 
+from py_vapid import Vapid01
 from pywebpush import WebPushException, webpush
 
 from .stockage import Stockage
@@ -19,12 +20,20 @@ class ErreurNotification(RuntimeError):
     pass
 
 
-def _cle_privee_et_claims() -> tuple[str, dict]:
+def _cle_privee_et_claims() -> tuple[Vapid01, dict]:
     cle_privee = os.environ.get("VAPID_PRIVATE_KEY")
     email_contact = os.environ.get("VAPID_CONTACT_EMAIL")
     if not cle_privee or not email_contact:
         raise ErreurNotification("VAPID_PRIVATE_KEY ou VAPID_CONTACT_EMAIL manquante")
-    return cle_privee, {"sub": f"mailto:{email_contact}"}
+    # Vapid.from_string() (utilisé par pywebpush si on lui passe la chaîne
+    # brute) ne sait pas retirer l'en-tête/pied PEM ("-----BEGIN...-----") et
+    # échoue sur un bloc PEM complet — construire l'objet Vapid01 ici via
+    # from_pem() évite le problème, quel que soit le format stocké.
+    if "-----BEGIN" in cle_privee:
+        vapid = Vapid01.from_pem(cle_privee.encode("utf-8"))
+    else:
+        vapid = Vapid01.from_string(cle_privee)
+    return vapid, {"sub": f"mailto:{email_contact}"}
 
 
 def envoyer_a_tous(
@@ -37,7 +46,7 @@ def envoyer_a_tous(
     if mode_test:
         return 0
 
-    cle_privee, claims = _cle_privee_et_claims()
+    vapid, claims = _cle_privee_et_claims()
     abonnements = stockage.charger_abonnements_actifs()
 
     charge_utile = json.dumps({"titre": titre, "corps": corps, "url": url})
@@ -52,7 +61,7 @@ def envoyer_a_tous(
             webpush(
                 subscription_info=subscription_info,
                 data=charge_utile,
-                vapid_private_key=cle_privee,
+                vapid_private_key=vapid,
                 vapid_claims=dict(claims),
             )
             nb_reussis += 1
